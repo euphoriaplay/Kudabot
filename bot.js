@@ -1659,6 +1659,7 @@ async sendPlacePhotos(chatId, photos) {
     message += `└ Категорий: ${categories.length}\n\n`;
     message += `*Доступные действия:*`;
     
+    
     const inlineKeyboard = {
       inline_keyboard: [
         [

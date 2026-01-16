@@ -27,8 +27,8 @@
     {
       "id": "c8f95623-3caa-46e1-ac76-1bbd7231f5a0",
       "name": "варпыворапвыра",
-      "address": "sdjkfghjkghdfkjghd",
-      "working_hours": "10:00 - 22:00",
+      "address": "тестовая3",
+      "working_hours": "10:00 - 23:00",
       "average_price": "1000-5000",
       "description": "lguhjdhfiguodhfgjfdhgdlkfjgh",
       "category_id": "19",
@@ -39,7 +39,7 @@
       "contacts": null,
       "map_url": null,
       "created_at": "2026-01-09T20:12:16.967Z",
-      "updated_at": "2026-01-09T20:12:16.967Z",
+      "updated_at": "2026-01-14T20:17:42.968Z",
       "photos": [
         {
           "fileName": "photo_1767989535198_r5bhi6.jpg",
@@ -243,5 +243,5 @@
       "photos": []
     }
   ],
-  "updatedAt": "2026-01-11T16:46:01.694Z"
+  "updatedAt": "2026-01-14T20:17:42.971Z"
 }

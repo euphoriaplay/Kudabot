@@ -452,6 +452,23 @@ class CityGuideBot {
     );
   }
 
+  async handleCityPhotoMessage(chatId, msg, state) {
+    console.log('📸 Получено фото для города');
+    
+    if (!msg.photo || !Array.isArray(msg.photo) || msg.photo.length === 0) {
+      console.warn('⚠️ Нет фото в сообщении');
+      return;
+    }
+    
+    const photo = msg.photo[msg.photo.length - 1];
+    state.photoFileId = photo.file_id;
+    state.step = 'finish';
+    this.userStates.set(chatId, state);
+    
+    await this.sendAdminMessage(chatId, '✅ Фото сохранено!');
+    await this.finishAddingCity(chatId, state);
+  }
+
   isUserAdmin(userId) {
     return this.adminIds.includes(userId);
   }
@@ -566,6 +583,9 @@ class CityGuideBot {
   }
 
   setupHandlers() {
+    // Установка меню команд
+    this.setBotCommands();
+
     setTimeout(async () => {
       try {
         const result = await categoryManager.checkAndRepairCategories();
@@ -582,9 +602,14 @@ class CityGuideBot {
       
       const userState = this.userStates.get(chatId);
       
-      // Проверяем, находится ли пользователь в процессе добавления фото
+      // Проверяем, находится ли пользователь в процессе добавления фото к месту
       if (userState && userState.action === 'adding_place' && userState.step === 'add_photos') {
         await this.handlePhotoMessage(chatId, msg);
+      }
+      
+      // Проверяем, находится ли пользователь в процессе добавления фото к городу
+      if (userState && userState.action === 'adding_city' && userState.step === 'add_photo') {
+        await this.handleCityPhotoMessage(chatId, msg, userState);
       }
     });
 
@@ -604,6 +629,33 @@ class CityGuideBot {
                          `расскажу о событиях и подскажу куда сходить.\n\n`;
       
       await this.showMainMenu(chatId, welcomeText, isAdmin);
+    });
+
+    this.bot.onText(/\/cities/, async (msg) => {
+      const chatId = msg.chat.id;
+      
+      await this.deleteLastMessage(chatId);
+      await this.showCitySelection(chatId);
+    });
+
+    this.bot.onText(/\/help/, async (msg) => {
+      const chatId = msg.chat.id;
+      
+      await this.deleteLastMessage(chatId);
+      
+      const helpText = `❓ *Справка по боту*\n\n` +
+                       `Доступные команды:\n` +
+                       `/start - Главное меню\n` +
+                       `/cities - Выбрать город\n` +
+                       `/help - Справка\n\n` +
+                       `Как пользоваться ботом:\n` +
+                       `1️⃣ Нажмите /start для входа\n` +
+                       `2️⃣ Выберите интересующий вас город\n` +
+                       `3️⃣ Просмотрите места в категориях\n` +
+                       `4️⃣ Получите информацию о каждом месте\n\n` +
+                       `Вопросы? Обратитесь в поддержку!`;
+      
+      await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' });
     });
 
     this.bot.onText(/\/updateallcoords/, async (msg) => {
@@ -759,7 +811,17 @@ this.bot.on('message', async (msg) => {
     return;
   }
   
-  await this.deleteLastMessage(chatId);
+  // Проверяем, находится ли пользователь в режиме выбора места
+  if (userState && userState.action === 'selecting_place') {
+    const place = userState.places.find(p => p.name.substring(0, 30) === text || p.name === text);
+    if (place) {
+      await this.showPlaceDetails(chatId, userState.cityKey, place.id, userId);
+      return;
+    }
+  }
+  
+  // Не удаляем сообщения - используем постоянное меню
+  // await this.deleteLastMessage(chatId);
   
   switch(text) {
     case '🏙️ Выбрать город':
@@ -776,23 +838,39 @@ this.bot.on('message', async (msg) => {
       
     case '⚙️ Администрирование':
       if (isAdmin) {
-        // Устанавливаем флаг админ-сессии
-        this.adminSessions.set(chatId, true);
-        await this.showAdminPanel(chatId);
+        try {
+          // Устанавливаем флаг админ-сессии
+          this.adminSessions.set(chatId, true);
+          await this.showAdminPanel(chatId);
+        } catch (error) {
+          console.error('❌ Ошибка при открытии админ-панели:', error);
+          await this.sendAdminMessage(chatId, '❌ Ошибка при загрузке админ-панели: ' + error.message);
+        }
       } else {
         await this.sendAdminMessage(chatId, '⛔ У вас нет доступа к этой функции.');
       }
       break;
       
-    case '🏠 Главное меню':
-      this.adminSessions.delete(chatId);
-      this.userStates.delete(chatId);
-      await this.showMainMenu(chatId, 'Главное меню:', isAdmin);
-      break;
-      
     case '🔙 Назад':
       this.adminSessions.delete(chatId);
       await this.showMainMenu(chatId, 'Главное меню:', isAdmin);
+      break;
+      
+    default:
+      // Проверяем, это ли название города
+      const cities = await cityManager.getAllCities();
+      if (cities.includes(text)) {
+        await this.handleCitySelection(chatId, this.getCityKey(text), isAdmin);
+        return;
+      }
+      
+      // Проверяем, это ли название категории
+      const categories = await categoryManager.getAllCategories();
+      const category = categories.find(c => c.name === text);
+      if (category && userState && userState.selectedCity) {
+        await this.showPlacesByCategory(chatId, this.getCityKey(userState.selectedCity), category.id);
+        return;
+      }
       break;
   }
 });
@@ -942,6 +1020,24 @@ this.bot.on('message', async (msg) => {
       
       await this.sendAdminMessage(chatId, '❌ Место не найдено');
     });
+  }
+
+  // ============ УСТАНОВКА КОМАНД МЕНЮ ============
+  async setBotCommands() {
+    try {
+      const commands = [
+        {
+          command: 'start',
+          description: '🏠 Главное меню'
+        }
+      ];
+
+      // Установка команд для обычных пользователей
+      await this.bot.setMyCommands(commands);
+      console.log('✅ Меню команд установлено');
+    } catch (error) {
+      console.error('❌ Ошибка при установке меню команд:', error);
+    }
   }
 
   // ============ ОБРАБОТКА CALLBACK ДЕЙСТВИЙ ============
@@ -1346,34 +1442,56 @@ this.bot.on('message', async (msg) => {
     this.userStates.delete(chatId);
     this.adminSessions.delete(chatId);
     
-    const menu = {
-      keyboard: [
-        ['🏙️ Выбрать город'],
-        ['📰 Новости', '📱 Наши медиа']
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: false
-    };
-    
-    if (isAdmin) {
-      menu.keyboard.push(['⚙️ Администрирование']);
-    }
-    
     await this.sendAndTrack(chatId, text, {
-      reply_markup: menu
+      reply_markup: this.getKeyboardWithMainMenu(isAdmin)
     });
   }
 
   getKeyboardWithMainMenu(isAdmin = false) {
     const keyboard = [
       ['🏙️ Выбрать город'],
-      ['📰 Новости', '📱 Наши медиа'],
-      ['🏠 Главное меню']  // ✅ Всегда добавляем эту кнопку
+      ['📰 Новости', '📱 Наши медиа']
     ];
     
     if (isAdmin) {
-      keyboard.splice(2, 0, ['⚙️ Администрирование']);  // Вставляем перед "Главное меню"
+      keyboard.push(['⚙️ Администрирование']);
     }
+    
+    return {
+      keyboard: keyboard,
+      resize_keyboard: true,
+      one_time_keyboard: false
+    };
+  }
+
+  // Метод для преобразования inline кнопок в регулярные кнопки
+  inlineToRegularKeyboard(inlineKeyboard, isAdmin = false) {
+    const keyboard = [];
+    
+    if (inlineKeyboard && inlineKeyboard.inline_keyboard) {
+      for (const row of inlineKeyboard.inline_keyboard) {
+        const regularRow = [];
+        for (const button of row) {
+          // Преобразуем inline кнопки в регулярные
+          if (button.text) {
+            regularRow.push(button.text);
+          }
+        }
+        if (regularRow.length > 0) {
+          keyboard.push(regularRow);
+        }
+      }
+    }
+    
+    // Добавляем основное меню в конец
+    keyboard.push(['🏙️ Выбрать город']);
+    keyboard.push(['📰 Новости', '📱 Наши медиа']);
+    
+    if (isAdmin) {
+      keyboard.push(['⚙️ Администрирование']);
+    }
+    
+    keyboard.push(['🏠 Главное меню']);
     
     return {
       keyboard: keyboard,
@@ -1394,24 +1512,25 @@ this.bot.on('message', async (msg) => {
       return;
     }
     
+    const message = '🏙️ *Выберите город:*';
+    
+    // ✅ ИСПОЛЬЗУЕМ INLINE КНОПКИ ДЛЯ ГОРОДОВ
     const inlineKeyboard = {
       inline_keyboard: []
     };
     
-    for (let i = 0; i < cities.length; i += 2) {
-      const row = cities.slice(i, i + 2).map(city => ({
-        text: city,
-        callback_data: `select_city:${this.getCityKey(city)}`
-      }));
-      inlineKeyboard.inline_keyboard.push(row);
+    for (let i = 0; i < cities.length; i += 1) {
+      inlineKeyboard.inline_keyboard.push([
+        {
+          text: cities[i],
+          callback_data: `select_city:${this.getCityKey(cities[i])}`
+        }
+      ]);
     }
     
-    // ✅ Добавляем кнопку Главное меню
-    inlineKeyboard.inline_keyboard.push([
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-    ]);
-    
-    await this.sendAndTrack(chatId, '🏙️ Выберите город:', {
+    // ✅ Отправляем с inline-кнопками и регулярным меню внизу
+    await this.sendAndTrack(chatId, message, {
+      parse_mode: 'Markdown',
       reply_markup: inlineKeyboard
     });
   }
@@ -1427,9 +1546,25 @@ this.bot.on('message', async (msg) => {
     const categories = await categoryManager.getAllCategories();
     const stats = await placeManager.getCityStats(cityName);
     
+    // Получаем данные города для поиска фото
+    const cityData = await cityManager.getCityData(cityName);
+    
     let message = `🏙️ *${cityName}*\n\n`;
-    message += `📍 Всего мест: ${stats.totalPlaces}\n\n`;
-    message += `Выберите категорию:`;
+    message += `Выберите категорию:\n\n`;
+    
+    // 🖼️ ДОБАВЛЯЕМ ССЫЛКУ НА ФОТО ГОРОДА В КОНЕЦ СООБЩЕНИЯ (для превью)
+    if (cityData && cityData.photo) {
+      // Если есть URL (загружено в Firebase)
+      if (cityData.photo.url) {
+        message += `\n[​](${cityData.photo.url})`;
+        console.log(`🖼️ Добавлена ссылка на фото города в Firebase: ${cityData.photo.url.substring(0, 50)}...`);
+      } 
+      // Если только file_id из Telegram
+      else if (cityData.photo.telegramFileId) {
+        message += `\n[​](${cityData.photo.telegramFileId})`;
+        console.log(`🖼️ Добавлена ссылка на фото города (Telegram): ${cityData.photo.telegramFileId.substring(0, 50)}...`);
+      }
+    }
     
     const inlineKeyboard = {
       inline_keyboard: []
@@ -1446,6 +1581,7 @@ this.bot.on('message', async (msg) => {
       }
     }
     
+    // Добавляем категории с местами в inline кнопки
     for (let i = 0; i < categoriesWithPlaces.length; i += 2) {
       const row = categoriesWithPlaces.slice(i, i + 2).map(cat => ({
         text: `${cat.emoji} ${cat.name} (${cat.count})`,
@@ -1454,6 +1590,7 @@ this.bot.on('message', async (msg) => {
       inlineKeyboard.inline_keyboard.push(row);
     }
     
+    // Если нет категорий с местами, показываем все
     if (categoriesWithPlaces.length === 0) {
       for (let i = 0; i < categories.length; i += 2) {
         const row = categories.slice(i, i + 2).map(cat => ({
@@ -1471,11 +1608,7 @@ this.bot.on('message', async (msg) => {
       ]);
     }
     
-    // ✅ Добавляем кнопку Главное меню
-    inlineKeyboard.inline_keyboard.push([
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-    ]);
-    
+    // Отправляем информацию о городе с inline-кнопками
     await this.sendAndTrack(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: inlineKeyboard
@@ -1495,6 +1628,16 @@ this.bot.on('message', async (msg) => {
         chatId,
         `В категории "${category.emoji} ${category.name}" пока нет мест.\n\n` +
         `Выберите другую категорию или добавьте новое место.`
+      );
+      
+      // Отправляем меню
+      await this.bot.sendMessage(
+        chatId,
+        '📋 *Выберите действие:*',
+        { 
+          parse_mode: 'Markdown',
+          reply_markup: this.getKeyboardWithMainMenu(isAdmin) 
+        }
       );
       return;
     }
@@ -1516,12 +1659,7 @@ this.bot.on('message', async (msg) => {
       ]);
     });
     
-    // ✅ Добавляем кнопки навигации и Главное меню
-    inlineKeyboard.inline_keyboard.push([
-      { text: '🔙 К категориям', callback_data: `select_city:${cityKey}` },
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-    ]);
-    
+    // ✅ Отправляем информацию о местах с inline-кнопками
     await this.sendAndTrack(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: inlineKeyboard
@@ -1723,9 +1861,6 @@ this.bot.on('message', async (msg) => {
         [
           { text: '📊 Статистика', callback_data: 'admin_action:stats' },
           { text: '🔄 Обновить данные', callback_data: 'admin_action:refresh' }
-        ],
-        [
-          { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
         ]
       ]
     };
@@ -1768,6 +1903,14 @@ this.bot.on('message', async (msg) => {
         }
         break;
         
+    case 'edit_places':
+      if (param) {
+        await this.showPlacesForEdit(chatId, await this.getCityNameFromKey(param));
+      } else {
+        await this.startEditPlace(chatId);
+      }
+      break;
+
       case 'manage_categories':
         await this.showCategoryManagement(chatId);
         break;
@@ -2140,6 +2283,16 @@ this.bot.on('message', async (msg) => {
       return;
     }
     
+    if (text === '/skip') {
+      // Для пропуска фото при добавлении города
+      if (state.action === 'adding_city' && state.step === 'add_photo') {
+        state.step = 'finish';
+        this.userStates.set(chatId, state);
+        await this.finishAddingCity(chatId, state);
+        return;
+      }
+    }
+    
     if (state.step === 'create_category_emoji') {
       await this.handleCreateCategoryEmoji(chatId, text, state);
       return;
@@ -2366,23 +2519,98 @@ this.bot.on('message', async (msg) => {
           return;
         }
         
-        const result = await cityManager.addCity(text.trim());
+        // Сохраняем название и переходим к добавлению фото
+        state.cityName = text.trim();
+        state.step = 'add_photo';
+        this.userStates.set(chatId, state);
         
-        if (result.success) {
-          await this.sendAdminMessage(
-            chatId,
-            `✅ Город "${result.cityName}" успешно добавлен!\n\n` +
-            `📁 Файл: \`${result.fileName}\``,
-            { parse_mode: 'Markdown' }
-          );
+        await this.sendAdminMessage(
+          chatId,
+          `✅ Название города сохранено: *${state.cityName}*\n\n` +
+          `🖼️ Теперь отправьте фото города или нажмите /skip для пропуска:`,
+          { parse_mode: 'Markdown' }
+        );
+        break;
+        
+      case 'add_photo':
+        // Если пользователь отправил фото
+        if (msg.photo) {
+          const photo = msg.photo[msg.photo.length - 1];
+          state.photoFileId = photo.file_id;
+          state.step = 'finish';
+          this.userStates.set(chatId, state);
+          
+          await this.sendAdminMessage(chatId, '✅ Фото сохранено!');
+          await this.finishAddingCity(chatId, state);
+        } else if (text === '/skip') {
+          state.step = 'finish';
+          this.userStates.set(chatId, state);
+          
+          await this.sendAdminMessage(chatId, '⏭️ Фото пропущено.');
+          await this.finishAddingCity(chatId, state);
         } else {
-          await this.sendAdminMessage(chatId, `❌ ${result.message}`);
+          await this.sendAdminMessage(chatId, '❌ Пожалуйста, отправьте фото или напишите /skip');
         }
-        
-        this.userStates.delete(chatId);
-        await this.showAdminPanel(chatId);
         break;
     }
+  }
+  
+  async finishAddingCity(chatId, state) {
+    console.log('🏁 Начинаю завершение добавления города...');
+    
+    let photoUrl = null;
+    let photoFileName = null;
+    
+    // 📸 Загружаем фото в Firebase если оно есть
+    if (state.photoFileId && this.firebaseStorage && this.firebaseStorage.initialized) {
+      try {
+        console.log('☁️ Загружаю фото города в Firebase...');
+        
+        const firebaseResult = await this.firebaseStorage.uploadPhotoFromTelegram(
+          state.photoFileId,
+          this.botToken
+        );
+        
+        if (firebaseResult.success) {
+          photoUrl = firebaseResult.url;
+          photoFileName = firebaseResult.fileName;
+          console.log(`✅ Фото города загружено в Firebase: ${photoUrl}`);
+        } else {
+          console.log(`❌ Не удалось загрузить фото в Firebase:`, firebaseResult.error);
+        }
+      } catch (error) {
+        console.error(`❌ Ошибка при загрузке фото в Firebase:`, error);
+      }
+    } else if (state.photoFileId) {
+      console.log('⚠️ Firebase Storage не доступен, сохраняю только file_id');
+    }
+    
+    // 🏙️ Добавляем город с информацией о фото
+    const result = await cityManager.addCity(state.cityName, {
+      photoFileId: state.photoFileId,
+      photoUrl: photoUrl,
+      photoFileName: photoFileName
+    });
+    
+    if (result.success) {
+      let message = `✅ Город "${result.cityName}" успешно добавлен!\n\n` +
+                    `📁 Файл: \`${result.fileName}\``;
+      
+      if (photoUrl) {
+        message += `\n📸 Фото: загружено в Firebase`;
+      } else if (state.photoFileId) {
+        message += `\n📸 Фото: сохранено (file_id: ${state.photoFileId})`;
+      } else {
+        message += `\n📸 Фото: не добавлено`;
+      }
+      
+      await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
+    } else {
+      await this.sendAdminMessage(chatId, `❌ ${result.message}`);
+    }
+    
+    this.userStates.delete(chatId);
+    await this.showAdminPanel(chatId);
   }
 
   async handleAddingPlace(chatId, msg, state) {
@@ -4187,7 +4415,7 @@ async handleEditingPlace(chatId, msg, state) {
     }
   }
 }
-
+//*Управление категориями*
   async showCategoryManagement(chatId) {
     const categories = await categoryManager.getAllCategories();
     const customCategories = await categoryManager.getCustomCategories();
@@ -4209,7 +4437,8 @@ async handleEditingPlace(chatId, msg, state) {
           { text: '🗑️ Удалить категорию', callback_data: 'admin_categories:delete' }
         ],
         [
-          { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+          { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' },
+          { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
         ]
       ]
     };
@@ -4265,7 +4494,8 @@ async handleCategoriesManagement(chatId, action, param, messageId) {
           { text: '🗑️ Удалить категорию', callback_data: 'admin_categories:delete' }
         ],
         [
-          { text: '🔙 Назад', callback_data: 'admin_action:manage_categories' }
+          { text: '🔙 Назад', callback_data: 'admin_action:manage_categories' },
+          { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
         ]
       ]
     };
@@ -4603,7 +4833,6 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     const cityName = await this.getCityNameFromKey(cityKey);
     const place = await placeManager.getPlaceById(cityName, placeId);
     
-    // Если userId не передан, пытаемся получить его из состояния
     if (!userId) {
       const userState = this.userStates.get(chatId);
       userId = userState?.userId || chatId;
@@ -4620,7 +4849,9 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       name: place.name,
       latitude: place.latitude,
       longitude: place.longitude,
-      hasCoordinates: !!(place.latitude && place.longitude)
+      hasCoordinates: !!(place.latitude && place.longitude),
+      photosCount: place.photos ? place.photos.length : 0,
+      photosStructure: place.photos ? JSON.stringify(place.photos) : 'нет фото'
     });
     
     const category = await categoryManager.getCategoryById(place.category_id);
@@ -4643,6 +4874,32 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     
     if (place.phone) {
       message += `📞 *Телефон:* ${place.phone}\n`;
+    }
+
+    // 🖼️ ДОБАВЛЯЕМ ССЫЛКУ НА ФОТО В КОНЕЦ СООБЩЕНИЯ (для превью)
+    let photoUrl = null;
+    
+    if (place.photos && Array.isArray(place.photos) && place.photos.length > 0) {
+      const photo = place.photos[0];
+      
+      // Получаем URL первого фото
+      if (photo && typeof photo === 'object' && photo.url) {
+        photoUrl = photo.url;
+      } else if (photo && typeof photo === 'object' && photo.fileName) {
+        const bucketName = 'help-tasc-progect.firebasestorage.app';
+        photoUrl = `https://storage.googleapis.com/${bucketName}/photos/${photo.fileName}`;
+      } else if (typeof photo === 'string' && photo.startsWith('http')) {
+        photoUrl = photo;
+      } else if (typeof photo === 'string' && photo.length > 10) {
+        const bucketName = 'help-tasc-progect.firebasestorage.app';
+        photoUrl = `https://storage.googleapis.com/${bucketName}/photos/${photo}`;
+      }
+      
+      // Добавляем ссылку на фото в конец сообщения
+      if (photoUrl) {
+        message += `\n[​](${photoUrl})`;  // Невидимая ссылка для превью
+        console.log(`🖼️ Добавлена ссылка на фото для превью: ${photoUrl.substring(0, 50)}...`);
+      }
     }
 
     const inlineKeyboard = {
@@ -4717,24 +4974,22 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     
     inlineKeyboard.inline_keyboard.push(navigationRow);
     
+    // 📝 ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МЕСТЕ С INLINE-КНОПКАМИ
     await this.sendAndTrack(chatId, message, {
       parse_mode: 'Markdown',
-      reply_markup: inlineKeyboard
+      reply_markup: inlineKeyboard,
+      disable_web_page_preview: false  // ✅ Включаем превью
     });
     
-    // Отправляем фото, если они есть
-    if (place.photos && place.photos.length > 0) {
-      await this.sendPlacePhotos(chatId, place.photos);
-    }
-     // ✅ ВАЖНО: ДОБАВЬТЕ ЭТОТ ВЫЗОВ ДЛЯ ПОКАЗА РЕКЛАМЫ
+    // ✅ ВАЖНО: ДОБАВЬТЕ ЭТОТ ВЫЗОВ ДЛЯ ПОКАЗА РЕКЛАМЫ
     await this.showAdAfterPlace(chatId, userId, cityKey, placeId);
     
   } catch (error) {
     console.error('❌ Ошибка при показе деталей места:', error.message);
+    console.error('❌ Stack trace:', error.stack);
     await this.sendAndTrack(chatId, '⚠️ Произошла ошибка при загрузке информации о месте.');
   }
 }
-
 // 2. Добавьте метод для показа вариантов проблем
 async showIssueOptions(chatId, cityKey, placeId) {
   const cityName = await this.getCityNameFromKey(cityKey);
@@ -4957,10 +5212,7 @@ async showAdAfterPlace(chatId, userId, cityKey, placeId) {
       ]);
     }
     
-    // Добавляем кнопки навигации
-    inlineKeyboard.inline_keyboard.push([
-      { text: '🔙 К месту', callback_data: `show_place:${cityKey}:${placeId}` }
-    ]);
+
     
     await this.sendAndTrack(chatId, adMessage, {
       parse_mode: 'Markdown',
@@ -5010,7 +5262,8 @@ async showAdsManagement(chatId) {
   }
   
   inlineKeyboard.inline_keyboard.push([
-    { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+    { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' },
+    { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
   ]);
   
   await this.sendAdminMessage(chatId, message, {
@@ -5044,7 +5297,8 @@ async showAdsList(chatId) {
         { text: '🗑️ Удалить объявление', callback_data: 'admin_ads:delete' }
       ],
       [
-        { text: '🔙 Назад', callback_data: 'admin_action:manage_ads' }
+        { text: '🔙 Назад', callback_data: 'admin_action:manage_ads' },
+        { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
       ]
     ]
   };

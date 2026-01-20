@@ -151,7 +151,7 @@ async saveCityData(cityName, cityData) {
   }
 
   // Добавить город
-  async addCity(cityName) {
+  async addCity(cityName, photoData = {}) {
     const cities = await this.getAllCities();
     
     // Проверяем, существует ли уже такой город
@@ -169,6 +169,23 @@ async saveCityData(cityName, cityData) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+    
+    // 📸 Добавляем информацию о фото если она есть
+    if (photoData.photoUrl) {
+      initialData.photo = {
+        url: photoData.photoUrl,
+        fileName: photoData.photoFileName,
+        uploadedAt: new Date().toISOString(),
+        telegramFileId: photoData.photoFileId || null
+      };
+      console.log(`📸 Сохраняю фото города: ${photoData.photoUrl}`);
+    } else if (photoData.photoFileId) {
+      initialData.photo = {
+        telegramFileId: photoData.photoFileId,
+        uploadedAt: new Date().toISOString()
+      };
+      console.log(`📸 Сохраняю file_id фото города: ${photoData.photoFileId}`);
+    }
     
     try {
       await fs.writeJson(cityFilePath, initialData, { spaces: 2 });

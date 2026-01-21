@@ -9,6 +9,25 @@ class PlaceManager {
     // ID генерируем динамически
   }
 
+  // Получить все места из всех городов
+  async getAllPlaces() {
+    try {
+      const allCities = await cityManager.getAllCities();
+      const allPlaces = [];
+      
+      for (const city of allCities) {
+        const places = await this.getPlacesByCity(city.name);
+        allPlaces.push(...places);
+      }
+      
+      console.log(`✅ [PlaceManager] Получено ${allPlaces.length} мест из всех городов`);
+      return allPlaces;
+    } catch (error) {
+      console.error('❌ Ошибка при получении всех мест:', error.message);
+      return [];
+    }
+  }
+
   // Получить все места города
   async getPlacesByCity(cityName) {
     const cityData = await cityManager.getCityData(cityName);

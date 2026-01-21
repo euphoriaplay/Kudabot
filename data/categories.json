@@ -14,5 +14,29 @@
     "icon": "🤩",
     "isCustom": true,
     "createdAt": "2026-01-09T10:40:31.294Z"
+  },
+  {
+    "id": 21,
+    "name": "тест",
+    "emoji": "㊗️",
+    "icon": "㊗️",
+    "isCustom": true,
+    "createdAt": "2026-01-21T15:01:00.456Z"
+  },
+  {
+    "id": 22,
+    "name": "тест2",
+    "emoji": "❓‼️",
+    "icon": "❓‼️",
+    "isCustom": true,
+    "createdAt": "2026-01-21T15:07:11.296Z"
+  },
+  {
+    "id": 23,
+    "name": "тест3",
+    "emoji": "🗝",
+    "icon": "🗝",
+    "isCustom": true,
+    "createdAt": "2026-01-21T15:10:21.368Z"
   }
 ]

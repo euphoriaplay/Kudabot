@@ -3,6 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const Bot = require('./bot');
 const fs = require('fs-extra');
 const path = require('path');
+const fileSyncManager = require('./utils/fileSyncManager');
 
 
 // Создаем папку для загрузок если её нет
@@ -38,6 +39,17 @@ const bot = new TelegramBot(token, {
 
 // Передаем токен в конструктор Bot
 const cityBot = new Bot(bot, adminIds, token);
+
+// Запускаем автоматическую синхронизацию файлов с Firebase
+const dataDir = path.join(__dirname, 'data');
+fileSyncManager.startWatching(dataDir);
+
+// Обработка завершения приложения
+process.on('SIGINT', () => {
+  console.log('\n👋 Завершаю работу бота...');
+  fileSyncManager.stopWatching();
+  process.exit(0);
+});
 
 // Логирование
 bot.on('message', (msg) => {

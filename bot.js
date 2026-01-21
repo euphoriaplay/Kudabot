@@ -5,6 +5,7 @@ const fileManager = require('./utils/fileManager');
 const photoManager = require('./utils/photoManager');
 const PhotoDownloader = require('./utils/photoDownloader');
 const firebaseStorage = require('./utils/firebaseStorage');
+const firebaseDatabase = require('./utils/firebaseDatabase');
 const axios = require('axios');
 const adsManager = require('./utils/adsManager');
 
@@ -22,7 +23,18 @@ class CityGuideBot {
     this.lastBotMessages = new Map();
     this.adminSessions = new Map();
     this.adsManager = adsManager;
+    this.firebaseDB = firebaseDatabase;
     this.startCleanupInterval();
+    
+    // Инициализация Firebase Database
+    try {
+      console.log('🔧 Статус Firebase Database:', 
+        this.firebaseDB.initialized ? '✅ Инициализирована' : '❌ Не инициализирована');
+    } catch (error) {
+      console.error('❌ Не удалось загрузить Firebase Database:', error.message);
+      this.firebaseDB = null;
+    }
+    
     // Инициализация Firebase Storage с обработкой ошибок
     try {
       const FirebaseStorage = require('./utils/firebaseStorage');
@@ -1919,6 +1931,11 @@ this.bot.on('message', async (msg) => {
       case 'manage_ads':
         await this.showAdsManagement(chatId);
         break;
+      
+      // ✅ НОВЫЙ CASE для синхронизации Firebase
+      case 'sync_firebase':
+        await this.syncDataToFirebase(chatId);
+        break;
         
       case 'stats':
         await this.showAdminStats(chatId);
@@ -2041,7 +2058,10 @@ this.bot.on('message', async (msg) => {
   }
 
   async startAddPlace(chatId, cityName = null) {
-    if (cityName) {
+    console.log(`🔍 [DEBUG startAddPlace] Called with cityName:`, { cityName });
+    
+    if (cityName && cityName.trim() !== '') {
+      console.log(`✅ [DEBUG startAddPlace] Setting state with city: ${cityName}`);
       this.userStates.set(chatId, {
         action: 'adding_place',
         step: 'select_category',
@@ -2051,6 +2071,7 @@ this.bot.on('message', async (msg) => {
       
       await this.showCategorySelection(chatId, cityName);
     } else {
+      console.log(`⚠️ [DEBUG startAddPlace] No cityName, asking for city selection`);
       await this.askForCityForPlace(chatId);
     }
   }
@@ -2065,6 +2086,9 @@ this.bot.on('message', async (msg) => {
       );
       return;
     }
+    
+    // ✅ ОЧИЩАЕМ ЛЮБОЕ СУЩЕСТВУЮЩЕЕ СОСТОЯНИЕ
+    this.userStates.delete(chatId);
     
     console.log('🏙️ Города для добавления места:', cities);
     
@@ -2102,9 +2126,9 @@ this.bot.on('message', async (msg) => {
 
   async showCategorySelection(chatId, cityName, isNewCategory = false) {
     // ✅ ДОБАВЬТЕ ЭТУ ПРОВЕРКУ
-    if (!cityName) {
-      console.error('❌ Ошибка: cityName не определен!');
-      await this.sendAdminMessage(chatId, '❌ Ошибка: город не определен. Начните заново.');
+    if (!cityName || cityName.trim() === '') {
+      console.error('❌ Ошибка: cityName не определен!', { cityName });
+      await this.sendAdminMessage(chatId, '❌ Ошибка: город не определен. Пожалуйста, выберите город еще раз.');
       await this.showAdminPanel(chatId);
       return;
     }
@@ -2217,6 +2241,8 @@ this.bot.on('message', async (msg) => {
   async handleCategoryCallback(chatId, userId, action, params, messageId) {
     const state = this.userStates.get(chatId);
     
+    console.log(`🔍 [DEBUG handleCategoryCallback] State:`, state);
+    
     if (!state || state.action !== 'adding_place') {
       // ✅ ДОБАВЛЕНО: Если состояние не найдено, показываем сообщение
       await this.sendAdminMessage(
@@ -2228,11 +2254,14 @@ this.bot.on('message', async (msg) => {
     
     const cityName = state.city;
     
-    if (!cityName) {
+    console.log(`🔍 [DEBUG handleCategoryCallback] cityName from state:`, { cityName });
+    
+    if (!cityName || cityName.trim() === '') {
       await this.sendAdminMessage(
         chatId,
         '❌ Не удалось определить город. Начните заново.'
       );
+      await this.showAdminPanel(chatId);
       return;
     }
     
@@ -2439,6 +2468,8 @@ this.bot.on('message', async (msg) => {
   async handleAddingCategory(chatId, msg, state) {
     const text = msg.text;
     
+    console.log(`🔍 [DEBUG handleAddingCategory] State:`, { step: state.step, city: state.city, action: state.action });
+    
     if (text === '/cancel' || text.toLowerCase() === 'отмена') {
       this.userStates.delete(chatId);
       await this.sendAdminMessage(chatId, '❌ Создание категории отменено.');
@@ -2478,22 +2509,36 @@ this.bot.on('message', async (msg) => {
         if (result.success) {
           await this.sendAdminMessage(
             chatId,
-            `✅ Категория "${emoji} ${state.categoryName}" успешно создана!\n\n` +
-            `Теперь выберите категорию для нового места:`,
+            `✅ Категория "${emoji} ${state.categoryName}" успешно создана!`,
             { parse_mode: 'Markdown' }
           );
           
-          // Возвращаемся к добавлению места с новой категорией
-          const newState = {
-            action: 'adding_place',
-            step: 'select_category',
-            city: state.city,
-            placeData: {}
-          };
-          this.userStates.set(chatId, newState);
+          console.log(`✅ [DEBUG handleAddingCategory] Category created, state.city:`, state.city);
           
-          // Показываем выбор категории снова
-          await this.showCategorySelection(chatId, state.city);
+          // Если город определен, возвращаемся к добавлению места
+          if (state.city && state.city.trim() !== '') {
+            const newState = {
+              action: 'adding_place',
+              step: 'select_category',
+              city: state.city,
+              placeData: {}
+            };
+            this.userStates.set(chatId, newState);
+            
+            await this.sendAdminMessage(
+              chatId,
+              `Теперь выберите категорию для нового места:`,
+              { parse_mode: 'Markdown' }
+            );
+            
+            // Показываем выбор категории снова
+            await this.showCategorySelection(chatId, state.city);
+          } else {
+            // Если город не определен, возвращаемся в управление категориями
+            console.log(`ℹ️ [DEBUG handleAddingCategory] No city, returning to category management`);
+            this.userStates.delete(chatId);
+            await this.showCategoryManagement(chatId);
+          }
         } else {
           await this.sendAdminMessage(chatId, `❌ ${result.message}`);
           
@@ -2504,6 +2549,7 @@ this.bot.on('message', async (msg) => {
             chatId,
             'Пожалуйста, введите другое название категории:'
           );
+          return;
         }
         break;
     }
@@ -3272,7 +3318,16 @@ this.bot.on('message', async (msg) => {
       
       state.step = 'select_category';
       this.userStates.set(chatId, state);
-      await this.showCategorySelection(chatId, state.city);
+      
+      console.log(`❌ [DEBUG handleCreateCategoryEmoji] Error creating category, state.city:`, state.city);
+      
+      if (state.city && state.city.trim() !== '') {
+        await this.showCategorySelection(chatId, state.city);
+      } else {
+        console.error(`❌ [DEBUG handleCreateCategoryEmoji] state.city is invalid:`, state.city);
+        await this.sendAdminMessage(chatId, '❌ Ошибка: город не определен. Начните заново.');
+        await this.showAdminPanel(chatId);
+      }
     }
   }
 
@@ -4516,7 +4571,8 @@ async handleCategoriesManagement(chatId, action, param, messageId) {
     
     this.userStates.set(chatId, {
       action: 'adding_category',
-      step: 'enter_name'
+      step: 'enter_name',
+      city: null  // ✅ Явно указываем, что город не определен
     });
   }
 
@@ -4793,7 +4849,67 @@ async showAdminStats(chatId) {
     }
   }
   
-  await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '🔄 Синхронизировать Firebase', callback_data: 'admin_action:sync_firebase' }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' },
+        { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown', reply_markup: inlineKeyboard });
+}
+
+// ✅ НОВЫЙ МЕТОД для синхронизации данных в Firebase
+async syncDataToFirebase(chatId) {
+  if (!this.firebaseDB || !this.firebaseDB.initialized) {
+    await this.sendAdminMessage(
+      chatId,
+      '❌ Firebase Database не инициализирована.'
+    );
+    return;
+  }
+
+  try {
+    const statusMsg = await this.sendAdminMessage(chatId, '⏳ Начинаю синхронизацию...');
+
+    // Синхронизация категорий
+    const categories = await categoryManager.getAllCategories();
+    let syncStatus = `🔄 Синхронизация:\n\n`;
+    
+    const catResult = await this.firebaseDB.syncCategoriesToFirebase(categories);
+    syncStatus += `${catResult.success ? '✅' : '❌'} Категории: ${categories.length}\n`;
+
+    // Синхронизация городов
+    const cities = await cityManager.getAllCities();
+    const cityResult = await this.firebaseDB.syncCitiesToFirebase(cities);
+    syncStatus += `${cityResult.success ? '✅' : '❌'} Города: ${cities.length}\n`;
+
+    // Синхронизация мест
+    const places = await placeManager.getAllPlaces();
+    const placeResult = await this.firebaseDB.syncPlacesToFirebase(places);
+    syncStatus += `${placeResult.success ? '✅' : '❌'} Места: ${places.length}\n`;
+
+    // Итоговое сообщение
+    if (catResult.success && cityResult.success && placeResult.success) {
+      syncStatus += '\n✅ Синхронизация успешно завершена!';
+    } else {
+      syncStatus += '\n⚠️  Синхронизация завершена с ошибками';
+    }
+
+    await this.sendAdminMessage(chatId, syncStatus);
+
+  } catch (error) {
+    console.error('❌ Ошибка при синхронизации:', error.message);
+    await this.sendAdminMessage(
+      chatId,
+      `❌ Ошибка при синхронизации: ${error.message}`
+    );
+  }
 }
 
 async handleBackAction(chatId, target, isAdmin) {

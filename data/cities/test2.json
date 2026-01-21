@@ -1,0 +1,12 @@
+{
+  "name": "тест2",
+  "places": [],
+  "createdAt": "2026-01-21T15:39:27.628Z",
+  "updatedAt": "2026-01-21T15:39:27.628Z",
+  "photo": {
+    "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1769009966136_w3s13i.jpg",
+    "fileName": "photo_1769009966136_w3s13i.jpg",
+    "uploadedAt": "2026-01-21T15:39:27.628Z",
+    "telegramFileId": "AgACAgIAAxkBAAIBJ2lw8y2p6vOWLRfnzq8tpEhzjzBaAAIbC2sbdHOJS6zHN923v8LmAQADAgADeQADOAQ"
+  }
+}

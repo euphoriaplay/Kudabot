@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "init": "node init-data.js"
+    "init": "node init-data.js",
+    "migrate-firebase": "node migrate-to-firebase.js"
   },
   "keywords": [],
   "author": "",

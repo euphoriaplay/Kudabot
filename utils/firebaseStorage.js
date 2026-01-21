@@ -53,16 +53,20 @@ class FirebaseStorage {
         try {
           admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
-            storageBucket: 'help-tasc-progect.firebasestorage.app'
+            storageBucket: 'help-tasc-progect.firebasestorage.app',
+            databaseURL: `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`
           });
           console.log('✅ Firebase Admin SDK инициализирован');
         } catch (initError) {
           console.error('❌ Ошибка инициализации Firebase Admin SDK:', initError.message);
           return;
         }
+      } else {
+        console.log('✅ Firebase уже инициализирован');
       }
       
-      this.bucket = admin.storage().bucket();
+      // ✅ Исправлена инициализация bucket'а с явным названием
+      this.bucket = admin.storage().bucket('help-tasc-progect.firebasestorage.app');
       console.log('✅ Firebase Storage инициализирован');
       console.log(`📦 Bucket: ${this.bucket.name}`);
       this.initialized = true;

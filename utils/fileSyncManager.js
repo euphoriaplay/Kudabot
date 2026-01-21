@@ -88,7 +88,6 @@ class FileSyncManager {
         default:
           console.log(`⚠️  Неизвестный тип файла: ${fileType}`);
       }
-      }
     } catch (error) {
       console.error(`❌ Ошибка при синхронизации ${fileType}:`, error.message);
     } finally {

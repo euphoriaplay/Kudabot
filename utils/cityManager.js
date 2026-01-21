@@ -5,6 +5,7 @@ const fileManager = require('./fileManager');
 class CityManager {
   constructor() {
     this.citiesFile = 'cities.json';
+    this.firebaseDB = null;
     this.categories = [
       { id: 1, name: 'Рестораны и кафе', icon: '🍽️' },
       { id: 2, name: 'Музеи и галереи', icon: '🏛️' },
@@ -21,6 +22,10 @@ class CityManager {
     this.dataDir = path.join(__dirname, '..', 'data');
     fs.ensureDirSync(this.citiesDir);
     fs.ensureDirSync(this.dataDir);
+  }
+
+  setFirebaseDB(firebaseDB) {
+    this.firebaseDB = firebaseDB;
   }
 
   // Получить путь к файлу города
@@ -88,61 +93,6 @@ async saveCityData(cityName, cityData) {
     return { success: false, message: error.message };
   }
 }
-
-  // Получить данные города
-  async getCityData(cityName) {
-    try {
-      const cityFilePath = this.getCityFilePath(cityName);
-      
-      console.log(`📂 [DEBUG getCityData] Читаю файл: ${cityFilePath}`);
-      
-      if (await fs.pathExists(cityFilePath)) {
-        const data = await fs.readJson(cityFilePath);
-        console.log(`✅ [DEBUG getCityData] Файл успешно прочитан, мест: ${data.places ? data.places.length : 0}`);
-        return data;
-      }
-      
-      // Если файла нет, создаем базовую структуру
-      console.log(`🆕 [DEBUG getCityData] Создаю новую структуру для города ${cityName}`);
-      return {
-        name: cityName,
-        places: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
-    } catch (error) {
-      console.error('❌ Ошибка при чтении данных города:', error);
-      return null;
-    }
-  }
-
-  // Сохранить данные города
-  async saveCityData(cityName, cityData) {
-    try {
-      const cityFilePath = this.getCityFilePath(cityName);
-      
-      // Обновляем время изменения
-      cityData.updatedAt = new Date().toISOString();
-      
-      console.log(`💾 [DEBUG saveCityData] Сохраняю данные в файл: ${cityFilePath}`);
-      console.log(`💾 [DEBUG saveCityData] Количество мест: ${cityData.places ? cityData.places.length : 0}`);
-      
-      await fs.writeJson(cityFilePath, cityData, { spaces: 2 });
-      
-      // ПРОВЕРКА: читаем файл обратно, чтобы убедиться в сохранении
-      const verification = await fs.readJson(cityFilePath);
-      const savedPlace = verification.places.find(p => p.id === cityData.places[0]?.id);
-      
-      console.log(`✅ [DEBUG saveCityData] Данные сохранены в ${cityFilePath}`);
-      console.log(`✅ [DEBUG saveCityData] Проверка: первое место в файле - ${savedPlace?.name || 'не найдено'}`);
-      
-      return { success: true };
-    } catch (error) {
-      console.error('❌ Ошибка при сохранении данных города:', error);
-      return { success: false, message: error.message };
-    }
-  }
 
   // Получить все города
   async getAllCities() {

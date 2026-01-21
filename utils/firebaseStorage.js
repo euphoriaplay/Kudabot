@@ -203,6 +203,38 @@ class FirebaseStorage {
     };
   }
 }
+
+  // Удалить фото из Firebase Storage по URL
+  async deletePhotoFromUrl(photoUrl) {
+    try {
+      if (!this.initialized || !this.bucket) {
+        return { 
+          success: false, 
+          error: 'Firebase Storage не инициализирован' 
+        };
+      }
+
+      if (!photoUrl) {
+        return { 
+          success: false, 
+          error: 'URL фото не указан' 
+        };
+      }
+
+      // Извлекаем имя файла из URL
+      // Например: https://storage.googleapis.com/bucket/photos/photo_12345.jpg
+      const urlParts = photoUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1];
+      
+      console.log(`🗑️ Удаляю фото из Firebase: ${fileName} (${photoUrl})`);
+      
+      return await this.deletePhotoFromFirebase(fileName);
+      
+    } catch (error) {
+      console.error('❌ Ошибка удаления фото из Firebase:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = FirebaseStorage;

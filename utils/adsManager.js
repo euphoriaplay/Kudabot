@@ -5,7 +5,13 @@ class AdsManager {
   constructor() {
     this.adsFilePath = path.join(__dirname, '..', 'data', 'ads.json');
     this.userAdIndexPath = path.join(__dirname, '..', 'data', 'user_ad_index.json');
+    this.firebaseDB = null;
     this.ensureDataDirectory();
+  }
+
+  // Инициализировать Firebase
+  setFirebaseDB(firebaseDB) {
+    this.firebaseDB = firebaseDB;
   }
 
   async ensureDataDirectory() {
@@ -16,7 +22,6 @@ class AdsManager {
       await fs.mkdir(dataDir, { recursive: true });
     }
     
-    // Создаем файлы если их нет
     try {
       await fs.access(this.adsFilePath);
     } catch {
@@ -32,6 +37,22 @@ class AdsManager {
 
   async loadAds() {
     try {
+      // Попытка 1: Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        try {
+          console.log('📡 Получаю рекламу из Firebase...');
+          const firebaseAds = await this.firebaseDB.getAllAds();
+          if (firebaseAds && firebaseAds.length > 0) {
+            console.log(`✅ Загружено ${firebaseAds.length} рекламы из Firebase`);
+            return firebaseAds;
+          }
+        } catch (fbError) {
+          console.warn('⚠️ Firebase недоступен, используем локальный JSON');
+        }
+      }
+      
+      // Попытка 2: локальный JSON
+      console.log('📁 Получаю рекламу из локального файла...');
       const data = await fs.readFile(this.adsFilePath, 'utf8');
       return JSON.parse(data);
     } catch (error) {

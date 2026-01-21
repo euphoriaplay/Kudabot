@@ -3,17 +3,35 @@ const fileManager = require('./fileManager');
 class CategoryManager {
   constructor() {
     this.categoriesFile = 'categories.json';
-    this.defaultCategories = [
-
-    ];
+    this.firebaseDB = null;
+    this.defaultCategories = [];
   }
 
-  // Получить все категории с исправленной обработкой ошибок
+  // Инициализировать Firebase
+  setFirebaseDB(firebaseDB) {
+    this.firebaseDB = firebaseDB;
+  }
+
+  // Получить все категории из Firebase с fallback на JSON
   async getAllCategories() {
     try {
-      let customCategories = [];
+      // Попытка 1: Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        try {
+          console.log('📡 Получаю категории из Firebase...');
+          const firebaseCategories = await this.firebaseDB.getAllCategories();
+          if (firebaseCategories && firebaseCategories.length > 0) {
+            console.log(`✅ Загружено ${firebaseCategories.length} категорий из Firebase`);
+            return firebaseCategories;
+          }
+        } catch (fbError) {
+          console.warn('⚠️ Firebase недоступен, используем локальный JSON');
+        }
+      }
       
-      // Пытаемся прочитать файл с категориями
+      // Попытка 2: локальный JSON
+      console.log('📁 Получаю категории из локального файла...');
+      let customCategories = [];
       const rawData = await fileManager.readJSON(this.categoriesFile);
       
       // Проверяем, что данные являются массивом

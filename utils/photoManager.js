@@ -56,47 +56,16 @@ class PhotoManager {
     }
   }
 
-  // Сохранить фото локально (для обратной совместимости)
+  // Сохранить фото локально (ОТКЛЮЧЕНО - используется только Firebase Storage)
   async savePhoto(fileBuffer, city, placeId, fileName) {
-    try {
-      // Создаем директорию для города если ее нет
-      const cityDir = path.join(this.photosDir, city);
-      await fs.mkdir(cityDir, { recursive: true });
-      
-      // Создаем директорию для места если ее нет
-      const placeDir = path.join(cityDir, placeId);
-      await fs.mkdir(placeDir, { recursive: true });
-      
-      // Сохраняем файл
-      const filePath = path.join(placeDir, fileName);
-      await fs.writeFile(filePath, fileBuffer);
-      
-      console.log(`✅ Фото сохранено локально: ${filePath}`);
-      return filePath;
-      
-    } catch (error) {
-      console.error(`❌ Ошибка сохранения фото: ${error.message}`);
-      return null;
-    }
+    console.log(`⚠️ Локальное сохранение отключено - файлы хранятся только в Firebase Storage`);
+    return null;
   }
 
-  // Удалить фото локально (для обратной совместимости)
+  // Удалить фото локально (ОТКЛЮЧЕНО - файлы хранятся только в Firebase Storage)
   async deletePhoto(filePath) {
-    try {
-      if (!filePath) return false;
-      
-      const fullPath = path.isAbsolute(filePath) 
-        ? filePath 
-        : path.join(this.photosDir, filePath);
-      
-      await fs.unlink(fullPath);
-      console.log(`🗑️ Локальный файл удален: ${fullPath}`);
-      return true;
-      
-    } catch (error) {
-      console.error(`❌ Ошибка удаления фото: ${error.message}`);
-      return false;
-    }
+    console.log(`⚠️ Локальное удаление отключено - файлы хранятся только в Firebase Storage`);
+    return true;
   }
 
   // Проверить существование фото

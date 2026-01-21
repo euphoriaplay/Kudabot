@@ -26,6 +26,15 @@ class CityGuideBot {
     this.firebaseDB = firebaseDatabase;
     this.startCleanupInterval();
     
+    // ✅ Инициализируем Firebase в менеджерах
+    if (firebaseDatabase && firebaseDatabase.initialized) {
+      categoryManager.setFirebaseDB(firebaseDatabase);
+      adsManager.setFirebaseDB(firebaseDatabase);
+      cityManager.setFirebaseDB(firebaseDatabase);
+      placeManager.firebaseDB = firebaseDatabase;
+      console.log('✅ Менеджеры инициализированы с Firebase');
+    }
+    
     // Инициализация Firebase Database
     try {
       console.log('🔧 Статус Firebase Database:', 
@@ -4937,8 +4946,14 @@ async handleBackAction(chatId, target, isAdmin) {
     let total = 0;
     
     for (const city of cities) {
-      const cityData = await cityManager.getCityData(city);
-      total += cityData.places ? cityData.places.length : 0;
+      try {
+        const cityData = await cityManager.getCityData(city);
+        if (cityData && cityData.places) {
+          total += cityData.places.length;
+        }
+      } catch (error) {
+        console.warn(`⚠️ Ошибка при подсчёте мест города "${city}":`, error.message);
+      }
     }
     
     return total;

@@ -328,8 +328,25 @@ async deletePlace(cityName, placeId) {
     
     // Удаляем фото места (если есть)
     if (placeToDelete.photos && placeToDelete.photos.length > 0) {
-      console.log(`🗑️ [DEBUG deletePlace] Удаляю ${placeToDelete.photos.length} фото места`);
-      await photoManager.deletePlacePhotos(cityName, placeId);
+      console.log(`🗑️ [DEBUG deletePlace] Удаляю ${placeToDelete.photos.length} фото места из Firebase`);
+      
+      // Удаляем каждое фото из Firebase Storage
+      for (const photo of placeToDelete.photos) {
+        try {
+          // Если это Firebase URL - удаляем из Firebase
+          if (photo.url && photo.url.includes('storage.googleapis.com')) {
+            const firebaseStorage = require('./firebaseStorage');
+            const result = await firebaseStorage.deletePhotoFromUrl(photo.url);
+            if (result.success) {
+              console.log(`✅ Фото удалено из Firebase: ${photo.url}`);
+            } else {
+              console.log(`⚠️ Ошибка удаления фото из Firebase: ${result.error}`);
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Ошибка удаления фото:`, error.message);
+        }
+      }
     }
     
     // Обновляем время изменения города

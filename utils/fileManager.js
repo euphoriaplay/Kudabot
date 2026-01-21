@@ -196,9 +196,6 @@ async readJSON(fileName) {
       .replace(/ь/g, '')
       .replace(/б/g, 'b')
       .replace(/ю/g, 'yu') + '.json';
-
-        console.log(`🔍 [DEBUG generateCityFileName] Результат: "${result}"`);
-  return result;
   }
 
   // Проверить и исправить все JSON файлы

@@ -21,6 +21,22 @@ class FileSyncManager {
     this.watchFile(path.join(dataDir, 'cities.json'), 'cities');
     this.watchFile(path.join(dataDir, 'ads.json'), 'ads');
     
+    // Отслеживаем директорию городов для файлов {cityName}.json
+    const citiesDir = path.join(dataDir, 'cities');
+    if (fs.existsSync(citiesDir)) {
+      console.log('👁️  Отслеживаю папку городов...');
+      
+      // Читаем все файлы городов
+      const files = fs.readdirSync(citiesDir);
+      files.forEach(file => {
+        if (file.endsWith('.json')) {
+          const cityName = path.basename(file, '.json');
+          const filePath = path.join(citiesDir, file);
+          this.watchFile(filePath, `city:${cityName}`);
+        }
+      });
+    }
+    
     console.log('✅ Отслеживание включено');
   }
 
@@ -86,7 +102,13 @@ class FileSyncManager {
           await this.syncAds(filePath);
           break;
         default:
-          console.log(`⚠️  Неизвестный тип файла: ${fileType}`);
+          // Проверяем если это файл города (city:cityName)
+          if (fileType.startsWith('city:')) {
+            const cityName = fileType.substring(5);
+            await this.syncCityData(cityName, filePath);
+          } else {
+            console.log(`⚠️  Неизвестный тип файла: ${fileType}`);
+          }
       }
     } catch (error) {
       console.error(`❌ Ошибка при синхронизации ${fileType}:`, error.message);
@@ -191,6 +213,41 @@ class FileSyncManager {
       }
     } catch (error) {
       console.error('❌ Ошибка при синхронизации рекламы:', error.message);
+    }
+  }
+
+  // Синхронизировать данные конкретного города (места)
+  async syncCityData(cityName, filePath) {
+    try {
+      console.log(`🔄 Синхронизирую данные города "${cityName}"...`);
+      
+      const cityData = await cityManager.getCityData(cityName);
+      
+      if (!cityData) {
+        console.log(`⚠️  Данные города "${cityName}" не найдены`);
+        return;
+      }
+
+      console.log(`📍 Синхронизирую ${cityData.places?.length || 0} мест города "${cityName}"`);
+      
+      // Сохраняем город в Firebase
+      const cityResult = await firebaseDB.saveCity(cityName, cityData);
+      
+      if (cityResult.success) {
+        console.log(`✅ Данные города "${cityName}" синхронизированы`);
+        
+        // Синхронизируем места города
+        if (cityData.places && cityData.places.length > 0) {
+          const placeResult = await firebaseDB.syncPlacesToFirebase(cityData.places);
+          if (placeResult.success) {
+            console.log(`✅ ${cityData.places.length} мест города "${cityName}" синхронизировано`);
+          }
+        }
+      } else {
+        console.error(`❌ Ошибка синхронизации города "${cityName}": ${cityResult.message}`);
+      }
+    } catch (error) {
+      console.error(`❌ Ошибка при синхронизации города "${cityName}":`, error.message);
     }
   }
 

@@ -59,24 +59,6 @@ class FirebaseDatabase {
   }
 
   // ============ КАТЕГОРИИ ============
-  async getAllCategories() {
-    try {
-      if (!this.initialized) {
-        console.warn('⚠️  Firebase Database не инициализирована');
-        return null;
-      }
-
-      const ref = this.db.ref('categories');
-      const snapshot = await ref.once('value');
-      const data = snapshot.val();
-      
-      console.log('✅ [Firebase] Категории получены');
-      return data ? Object.values(data) : [];
-    } catch (error) {
-      console.error('❌ Ошибка при получении категорий:', error.message);
-      return null;
-    }
-  }
 
   async getCategory(categoryId) {
     try {
@@ -421,6 +403,113 @@ class FirebaseDatabase {
       return { success: false, message: `Нет соединения с Firebase: ${error.message}` };
     }
   }
+  // Метод для добавления категории (совместим с CategoryManager)
+async addCategory(categoryData) {
+  try {
+    if (!this.initialized) {
+      throw new Error('Firebase Database не инициализирована');
+    }
+
+    // Генерируем ID или используем существующий
+    const categoryId = categoryData.id || Date.now().toString();
+    
+    const ref = this.db.ref(`categories/${categoryId}`);
+    await ref.set(categoryData);
+    
+    console.log(`✅ [Firebase] Категория "${categoryData.name}" добавлена`);
+    return { 
+      success: true, 
+      id: categoryId,
+      message: 'Категория успешно добавлена'
+    };
+  } catch (error) {
+    console.error('❌ Ошибка при добавлении категории:', error.message);
+    return { 
+      success: false, 
+      message: error.message 
+    };
+  }
+}
+
+// Метод для обновления категории (совместим с CategoryManager)
+async updateCategory(categoryId, updatedData) {
+  try {
+    if (!this.initialized) {
+      throw new Error('Firebase Database не инициализирована');
+    }
+
+    const ref = this.db.ref(`categories/${categoryId}`);
+    await ref.update(updatedData);
+    
+    console.log(`✅ [Firebase] Категория обновлена`);
+    return { 
+      success: true,
+      message: 'Категория обновлена'
+    };
+  } catch (error) {
+    console.error('❌ Ошибка при обновлении категории:', error.message);
+    return { 
+      success: false, 
+      message: error.message 
+    };
+  }
+}
+
+// Улучшенный getAllCategories для работы с CategoryManager
+async getAllCategories() {
+  try {
+    if (!this.initialized) {
+      console.warn('⚠️  Firebase Database не инициализирована');
+      return [];
+    }
+
+    const ref = this.db.ref('categories');
+    const snapshot = await ref.once('value');
+    const data = snapshot.val();
+    
+    console.log('✅ [Firebase] Категории получены');
+    
+    if (!data) {
+      return [];
+    }
+    
+    // Преобразуем объект в массив, сохраняя ID
+    const categories = Object.keys(data).map(key => ({
+      ...data[key],
+      id: data[key].id || key  // Используем существующий ID или ключ
+    }));
+    
+    console.log(`✅ [Firebase] Преобразовано ${categories.length} категорий`);
+    return categories;
+  } catch (error) {
+    console.error('❌ Ошибка при получении категорий:', error.message);
+    return [];
+  }
+}
+
+// Метод для удаления категории (совместим с CategoryManager)
+async deleteCategory(categoryId) {
+  try {
+    if (!this.initialized) {
+      throw new Error('Firebase Database не инициализирована');
+    }
+
+    const ref = this.db.ref(`categories/${categoryId}`);
+    await ref.remove();
+    
+    console.log(`✅ [Firebase] Категория удалена`);
+    return { 
+      success: true, 
+      message: 'Категория удалена' 
+    };
+  } catch (error) {
+    console.error('❌ Ошибка при удалении категории:', error.message);
+    return { 
+      success: false, 
+      message: error.message 
+    };
+  }
+}
 }
 
 module.exports = new FirebaseDatabase();

@@ -6,5 +6,13 @@
     "icon": "⚠️",
     "isCustom": true,
     "createdAt": "2026-01-21T19:35:21.678Z"
+  },
+  {
+    "id": 2,
+    "name": "тест",
+    "emoji": "0️⃣",
+    "icon": "0️⃣",
+    "isCustom": true,
+    "createdAt": "2026-01-22T16:58:06.636Z"
   }
 ]

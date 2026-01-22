@@ -56,10 +56,52 @@
           "telegramFileId": "AgACAgIAAxkBAAIB_WlxLBqp_FtY_ienmt2UD1x1uiybAAIzDWsbdHOJSxQJsrRLFbf3AQADAgADeQADOAQ"
         }
       ]
+    },
+    {
+      "id": "263f3c82-e67b-44da-bf37-f29c3240e025",
+      "name": "аплотпитвкаеоп",
+      "address": "пркапвпувкепку",
+      "working_hours": "24",
+      "average_price": "214234",
+      "description": "кенореоперопрорп",
+      "category_id": "2",
+      "category_name": "шрокавитпшоертп",
+      "category_emoji": "5️⃣",
+      "website": null,
+      "phone": null,
+      "contacts": null,
+      "map_url": null,
+      "latitude": null,
+      "longitude": null,
+      "google_place_id": null,
+      "created_at": "2026-01-22T17:17:18.716Z",
+      "updated_at": "2026-01-22T17:17:18.716Z",
+      "photos": []
+    },
+    {
+      "id": "f3ec8825-0510-4586-b2e4-b7d36bde5bfa",
+      "name": "плшопткешщопткуещошптке",
+      "address": "кешопиткешгопртекортк",
+      "working_hours": "24",
+      "average_price": "34645656675",
+      "description": "ероенонегонглнгоне",
+      "category_id": "2",
+      "category_name": "шрокавитпшоертп",
+      "category_emoji": "5️⃣",
+      "website": null,
+      "phone": null,
+      "contacts": null,
+      "map_url": null,
+      "latitude": null,
+      "longitude": null,
+      "google_place_id": null,
+      "created_at": "2026-01-22T17:17:55.410Z",
+      "updated_at": "2026-01-22T17:17:55.410Z",
+      "photos": []
     }
   ],
   "createdAt": "2026-01-21T19:34:47.695Z",
-  "updatedAt": "2026-01-21T19:42:21.089Z",
+  "updatedAt": "2026-01-22T17:17:55.411Z",
   "photo": {
     "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1769024086547_f63n0j.jpg",
     "fileName": "photo_1769024086547_f63n0j.jpg",

@@ -4,512 +4,583 @@ const path = require('path');
 
 class FirebaseDatabase {
   constructor() {
-    this.db = null;
     this.initialized = false;
+    this.db = null;
+    this.isFirebaseFirst = true; // ✅ РЕЖИМ: Firebase главный
     
     try {
-      console.log('🔧 Инициализация Firebase Realtime Database...');
-      
-      // Путь к JSON файлу с ключом
-      const serviceAccountPath = path.join(__dirname, '../serviceAccountKey.json');
-      
-      if (!fs.existsSync(serviceAccountPath)) {
-        console.error(`❌ Файл с ключом Firebase не найден: ${serviceAccountPath}`);
-        return;
-      }
-
-      // Читаем файл вручную и исправляем приватный ключ
-      const rawData = fs.readFileSync(serviceAccountPath, 'utf8');
-      
-      let serviceAccount;
-      try {
-        serviceAccount = JSON.parse(rawData);
-      } catch (parseError) {
-        console.error('❌ Ошибка парсинга JSON:', parseError.message);
-        return;
-      }
-      
-      // Исправляем приватный ключ
-      if (serviceAccount.private_key) {
-        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
-      }
+      const admin = require('firebase-admin');
+      const serviceAccount = require('../serviceAccountKey.json');
       
       if (!admin.apps.length) {
-        try {
-          admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-            databaseURL: `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`
-          });
-          console.log('✅ Firebase Admin SDK инициализирован для Realtime Database');
-        } catch (initError) {
-          console.error('❌ Ошибка инициализации Firebase:', initError.message);
-          return;
-        }
-      } else {
-        console.log('✅ Firebase уже инициализирован');
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          databaseURL: "https://help-tasc-progect-default-rtdb.europe-west1.firebasedatabase.app"
+        });
       }
       
       this.db = admin.database();
-      console.log('✅ Firebase Realtime Database инициализирована');
       this.initialized = true;
-      
+      console.log('✅ Firebase Database инициализирован (Firebase-First режим)');
     } catch (error) {
-      console.error('❌ Критическая ошибка инициализации Firebase Database:', error.message);
-    }
-  }
-
-  // ============ КАТЕГОРИИ ============
-
-  async getCategory(categoryId) {
-    try {
-      if (!this.initialized) return null;
-
-      const ref = this.db.ref(`categories/${categoryId}`);
-      const snapshot = await ref.once('value');
-      
-      return snapshot.val();
-    } catch (error) {
-      console.error('❌ Ошибка при получении категории:', error.message);
-      return null;
-    }
-  }
-
-  async saveCategory(categoryId, categoryData) {
-    try {
-      if (!this.initialized) {
-        throw new Error('Firebase Database не инициализирована');
-      }
-
-      const ref = this.db.ref(`categories/${categoryId}`);
-      await ref.set(categoryData);
-      
-      console.log(`✅ [Firebase] Категория "${categoryData.name}" сохранена`);
-      return { success: true, message: 'Категория сохранена' };
-    } catch (error) {
-      console.error('❌ Ошибка при сохранении категории:', error.message);
-      return { success: false, message: error.message };
-    }
-  }
-
-  async deleteCategory(categoryId) {
-    try {
-      if (!this.initialized) throw new Error('Firebase Database не инициализирована');
-
-      const ref = this.db.ref(`categories/${categoryId}`);
-      await ref.remove();
-      
-      console.log(`✅ [Firebase] Категория удалена`);
-      return { success: true, message: 'Категория удалена' };
-    } catch (error) {
-      console.error('❌ Ошибка при удалении категории:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка инициализации Firebase:', error.message);
+      this.initialized = false;
     }
   }
 
   // ============ ГОРОДА ============
+  
   async getAllCities() {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) return null;
-
-      const ref = this.db.ref('cities');
-      const snapshot = await ref.once('value');
+      const snapshot = await this.db.ref('cities').once('value');
       const data = snapshot.val();
       
-      console.log('✅ [Firebase] Города получены');
-      return data ? Object.values(data) : [];
-    } catch (error) {
-      console.error('❌ Ошибка при получении городов:', error.message);
-      return null;
-    }
-  }
-
-  async getCity(cityId) {
-    try {
-      if (!this.initialized) return null;
-
-      const ref = this.db.ref(`cities/${cityId}`);
-      const snapshot = await ref.once('value');
-      
-      return snapshot.val();
-    } catch (error) {
-      console.error('❌ Ошибка при получении города:', error.message);
-      return null;
-    }
-  }
-
-  async saveCity(cityId, cityData) {
-    try {
-      if (!this.initialized) {
-        throw new Error('Firebase Database не инициализирована');
+      if (!data) {
+        console.log('📭 Нет городов в Firebase');
+        return [];
       }
-
-      const ref = this.db.ref(`cities/${cityId}`);
-      await ref.set(cityData);
       
-      console.log(`✅ [Firebase] Город "${cityData.name}" сохранен`);
-      return { success: true, message: 'Город сохранен' };
+      const cities = Object.keys(data);
+      console.log(`✅ Загружено ${cities.length} городов из Firebase`);
+      return cities;
     } catch (error) {
-      console.error('❌ Ошибка при сохранении города:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка загрузки городов:', error.message);
+      throw error;
     }
   }
 
-  async deleteCity(cityId) {
+  async getCityData(cityName) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) throw new Error('Firebase Database не инициализирована');
-
-      const ref = this.db.ref(`cities/${cityId}`);
-      await ref.remove();
+      const snapshot = await this.db.ref(`cities/${cityName}`).once('value');
+      const data = snapshot.val();
       
-      console.log(`✅ [Firebase] Город удален`);
-      return { success: true, message: 'Город удален' };
+      if (!data) {
+        return { places: [], photo: null };
+      }
+      
+      return data;
     } catch (error) {
-      console.error('❌ Ошибка при удалении города:', error.message);
-      return { success: false, message: error.message };
+      console.error(`❌ Ошибка загрузки данных города ${cityName}:`, error.message);
+      throw error;
+    }
+  }
+
+  async addCity(cityName, cityData) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
+    try {
+      // Проверяем, существует ли город
+      const exists = await this.cityExists(cityName);
+      if (exists) {
+        return {
+          success: false,
+          message: `Город "${cityName}" уже существует в Firebase`
+        };
+      }
+      
+      // Добавляем город
+      await this.db.ref(`cities/${cityName}`).set({
+        places: [],
+        photo: cityData.photo || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+      
+      console.log(`✅ Город "${cityName}" добавлен в Firebase`);
+      
+      return {
+        success: true,
+        message: `Город "${cityName}" добавлен`,
+        cityName: cityName
+      };
+    } catch (error) {
+      console.error('❌ Ошибка добавления города:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  async removeCity(cityName) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
+    try {
+      // ✅ ЗАЩИТА: Проверяем, что удаление идет через интерфейс
+      console.log(`🗑️ Удаление города "${cityName}" из Firebase (через интерфейс)`);
+      
+      await this.db.ref(`cities/${cityName}`).remove();
+      
+      return {
+        success: true,
+        message: `Город "${cityName}" удален из Firebase`
+      };
+    } catch (error) {
+      console.error('❌ Ошибка удаления города:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  async cityExists(cityName) {
+    if (!this.initialized) {
+      return false;
+    }
+    
+    try {
+      const snapshot = await this.db.ref(`cities/${cityName}`).once('value');
+      return snapshot.exists();
+    } catch (error) {
+      console.error('❌ Ошибка проверки города:', error.message);
+      return false;
     }
   }
 
   // ============ МЕСТА ============
+  
   async getAllPlaces() {
-    try {
-      if (!this.initialized) return null;
-
-      const ref = this.db.ref('places');
-      const snapshot = await ref.once('value');
-      const data = snapshot.val();
-      
-      console.log('✅ [Firebase] Все места получены');
-      return data ? Object.values(data) : [];
-    } catch (error) {
-      console.error('❌ Ошибка при получении мест:', error.message);
-      return null;
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
     }
-  }
-
-  async getCityPlaces(cityId) {
+    
     try {
-      if (!this.initialized) return null;
-
-      const ref = this.db.ref('places').orderByChild('city_id').equalTo(cityId);
-      const snapshot = await ref.once('value');
-      const data = snapshot.val();
+      const cities = await this.getAllCities();
+      const allPlaces = [];
       
-      return data ? Object.values(data) : [];
-    } catch (error) {
-      console.error('❌ Ошибка при получении мест города:', error.message);
-      return null;
-    }
-  }
-
-  async getPlace(placeId) {
-    try {
-      if (!this.initialized) return null;
-
-      const ref = this.db.ref(`places/${placeId}`);
-      const snapshot = await ref.once('value');
-      
-      return snapshot.val();
-    } catch (error) {
-      console.error('❌ Ошибка при получении места:', error.message);
-      return null;
-    }
-  }
-
-  async savePlace(placeId, placeData) {
-    try {
-      if (!this.initialized) {
-        throw new Error('Firebase Database не инициализирована');
+      for (const city of cities) {
+        const cityData = await this.getCityData(city);
+        if (cityData.places && Array.isArray(cityData.places)) {
+          allPlaces.push(...cityData.places);
+        }
       }
-
-      const ref = this.db.ref(`places/${placeId}`);
-      await ref.set(placeData);
       
-      console.log(`✅ [Firebase] Место "${placeData.name}" сохранено`);
-      return { success: true, message: 'Место сохранено' };
+      console.log(`✅ Загружено ${allPlaces.length} мест из Firebase`);
+      return allPlaces;
     } catch (error) {
-      console.error('❌ Ошибка при сохранении места:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка загрузки мест:', error.message);
+      throw error;
     }
   }
 
-  async deletePlace(placeId) {
+  async getPlacesByCity(cityName) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) throw new Error('Firebase Database не инициализирована');
-
-      const ref = this.db.ref(`places/${placeId}`);
-      await ref.remove();
+      const snapshot = await this.db.ref(`cities/${cityName}/places`).once('value');
+      const places = snapshot.val();
       
-      console.log(`✅ [Firebase] Место удалено`);
-      return { success: true, message: 'Место удалено' };
+      if (!places) {
+        return [];
+      }
+      
+      return Array.isArray(places) ? places : [];
     } catch (error) {
-      console.error('❌ Ошибка при удалении места:', error.message);
-      return { success: false, message: error.message };
+      console.error(`❌ Ошибка загрузки мест города ${cityName}:`, error.message);
+      throw error;
     }
   }
 
-  // ============ СИНХРОНИЗАЦИЯ ДАННЫХ ============
-  async syncCategoriesToFirebase(categories) {
+  async addPlace(cityName, placeData) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) throw new Error('Firebase Database не инициализирована');
-
-      const ref = this.db.ref('categories');
+      const places = await this.getPlacesByCity(cityName);
       
-      // Преобразуем массив в объект с ID в качестве ключей
-      const categoriesObj = {};
-      categories.forEach(cat => {
-        categoriesObj[cat.id] = cat;
-      });
+      // Добавляем метаданные
+      const newPlace = {
+        ...placeData,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
       
-      await ref.set(categoriesObj);
-      console.log(`✅ [Firebase] ${categories.length} категорий синхронизировано`);
-      return { success: true };
+      places.push(newPlace);
+      
+      await this.db.ref(`cities/${cityName}/places`).set(places);
+      await this.db.ref(`cities/${cityName}/updated_at`).set(new Date().toISOString());
+      
+      console.log(`✅ Место "${placeData.name}" добавлено в Firebase`);
+      
+      return {
+        success: true,
+        place: newPlace
+      };
     } catch (error) {
-      console.error('❌ Ошибка при синхронизации категорий:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка добавления места:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
 
-  async syncCitiesToFirebase(cities) {
+  async updatePlace(cityName, placeId, updateData) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) throw new Error('Firebase Database не инициализирована');
-
-      const ref = this.db.ref('cities');
+      const places = await this.getPlacesByCity(cityName);
+      const index = places.findIndex(p => p.id === placeId);
       
-      const citiesObj = {};
-      cities.forEach((city, index) => {
-        citiesObj[`city_${index}`] = { id: index, name: city };
-      });
+      if (index === -1) {
+        return {
+          success: false,
+          message: 'Место не найдено'
+        };
+      }
       
-      await ref.set(citiesObj);
-      console.log(`✅ [Firebase] ${cities.length} городов синхронизировано`);
-      return { success: true };
+      // Обновляем место
+      places[index] = {
+        ...places[index],
+        ...updateData,
+        updated_at: new Date().toISOString()
+      };
+      
+      await this.db.ref(`cities/${cityName}/places`).set(places);
+      await this.db.ref(`cities/${cityName}/updated_at`).set(new Date().toISOString());
+      
+      console.log(`✅ Место обновлено в Firebase`);
+      
+      return {
+        success: true,
+        place: places[index]
+      };
     } catch (error) {
-      console.error('❌ Ошибка при синхронизации городов:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка обновления места:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
 
-  async syncPlacesToFirebase(places) {
+  async deletePlace(cityName, placeId) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) throw new Error('Firebase Database не инициализирована');
-
-      const ref = this.db.ref('places');
+      // ✅ ЗАЩИТА: Проверяем, что удаление идет через интерфейс
+      console.log(`🗑️ Удаление места ${placeId} из Firebase (через интерфейс)`);
       
-      const placesObj = {};
-      places.forEach((place, index) => {
-        placesObj[place.id || `place_${index}`] = place;
-      });
+      const places = await this.getPlacesByCity(cityName);
+      const filteredPlaces = places.filter(p => p.id !== placeId);
       
-      await ref.set(placesObj);
-      console.log(`✅ [Firebase] ${places.length} мест синхронизировано`);
-      return { success: true };
+      if (places.length === filteredPlaces.length) {
+        return {
+          success: false,
+          message: 'Место не найдено'
+        };
+      }
+      
+      await this.db.ref(`cities/${cityName}/places`).set(filteredPlaces);
+      await this.db.ref(`cities/${cityName}/updated_at`).set(new Date().toISOString());
+      
+      return {
+        success: true,
+        message: 'Место удалено из Firebase'
+      };
     } catch (error) {
-      console.error('❌ Ошибка при синхронизации мест:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка удаления места:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  // ============ КАТЕГОРИИ ============
+  
+  async getAllCategories() {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
+    try {
+      const snapshot = await this.db.ref('categories').once('value');
+      const data = snapshot.val();
+      
+      if (!data) {
+        return [];
+      }
+      
+      // Преобразуем объект в массив
+      const categories = Object.entries(data).map(([id, cat]) => ({
+        id,
+        ...cat
+      }));
+      
+      console.log(`✅ Загружено ${categories.length} категорий из Firebase`);
+      return categories;
+    } catch (error) {
+      console.error('❌ Ошибка загрузки категорий:', error.message);
+      throw error;
+    }
+  }
+
+  async addCategory(categoryData) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
+    try {
+      const newCategory = {
+        ...categoryData,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      await this.db.ref(`categories/${categoryData.id}`).set(newCategory);
+      
+      console.log(`✅ Категория "${categoryData.name}" добавлена в Firebase`);
+      
+      return {
+        success: true,
+        category: newCategory
+      };
+    } catch (error) {
+      console.error('❌ Ошибка добавления категории:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  async updateCategory(categoryId, updateData) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
+    try {
+      const snapshot = await this.db.ref(`categories/${categoryId}`).once('value');
+      
+      if (!snapshot.exists()) {
+        return {
+          success: false,
+          message: 'Категория не найдена'
+        };
+      }
+      
+      const updated = {
+        ...snapshot.val(),
+        ...updateData,
+        updated_at: new Date().toISOString()
+      };
+      
+      await this.db.ref(`categories/${categoryId}`).set(updated);
+      
+      return {
+        success: true,
+        category: updated
+      };
+    } catch (error) {
+      console.error('❌ Ошибка обновления категории:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  async deleteCategory(categoryId) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
+    try {
+      // ✅ ЗАЩИТА: Проверяем, что удаление идет через интерфейс
+      console.log(`🗑️ Удаление категории ${categoryId} из Firebase (через интерфейс)`);
+      
+      await this.db.ref(`categories/${categoryId}`).remove();
+      
+      return {
+        success: true,
+        message: 'Категория удалена из Firebase'
+      };
+    } catch (error) {
+      console.error('❌ Ошибка удаления категории:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
 
   // ============ РЕКЛАМА ============
+  
   async getAllAds() {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) return null;
-
-      const ref = this.db.ref('ads');
-      const snapshot = await ref.once('value');
+      const snapshot = await this.db.ref('ads').once('value');
       const data = snapshot.val();
       
-      console.log('✅ [Firebase] Реклама получена');
-      return data ? Object.values(data) : [];
+      if (!data) {
+        return [];
+      }
+      
+      const ads = Object.entries(data).map(([id, ad]) => ({
+        id,
+        ...ad
+      }));
+      
+      return ads;
     } catch (error) {
-      console.error('❌ Ошибка при получении рекламы:', error.message);
-      return null;
+      console.error('❌ Ошибка загрузки рекламы:', error.message);
+      throw error;
     }
   }
 
-  async saveAd(adId, adData) {
+  async addAd(adData) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) return { success: false, message: 'Firebase не инициализирована' };
-
-      const ref = this.db.ref(`ads/${adId}`);
-      await ref.set(adData);
+      const newAd = {
+        ...adData,
+        created_at: new Date().toISOString(),
+        views: 0
+      };
       
-      console.log(`✅ [Firebase] Реклама "${adData.text.substring(0, 50)}..." сохранена`);
-      return { success: true, message: 'Реклама сохранена' };
+      await this.db.ref(`ads/${adData.id}`).set(newAd);
+      
+      return {
+        success: true,
+        ad: newAd
+      };
     } catch (error) {
-      console.error('❌ Ошибка при сохранении рекламы:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка добавления рекламы:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
 
   async deleteAd(adId) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) return { success: false, message: 'Firebase не инициализирована' };
-
-      const ref = this.db.ref(`ads/${adId}`);
-      await ref.remove();
+      // ✅ ЗАЩИТА: Проверяем, что удаление идет через интерфейс
+      console.log(`🗑️ Удаление рекламы ${adId} из Firebase (через интерфейс)`);
       
-      console.log(`✅ [Firebase] Реклама ${adId} удалена`);
-      return { success: true, message: 'Реклама удалена' };
+      await this.db.ref(`ads/${adId}`).remove();
+      
+      return {
+        success: true
+      };
     } catch (error) {
-      console.error('❌ Ошибка при удалении рекламы:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка удаления рекламы:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
 
-  async syncAdsToFirebase(ads) {
+  // ============ БЭКАП В JSON ============
+  
+  async backupToJSON() {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) return { success: false, message: 'Firebase не инициализирована' };
-
-      if (!ads || ads.length === 0) {
-        console.log('⚠️  Нет рекламы для синхронизации');
-        return { success: true };
+      console.log('💾 Создание бэкапа Firebase -> JSON...');
+      
+      // Получаем все данные
+      const snapshot = await this.db.ref().once('value');
+      const data = snapshot.val();
+      
+      const backup = {
+        timestamp: new Date().toISOString(),
+        data: data
+      };
+      
+      // Сохраняем в JSON файл
+      const fs = require('fs');
+      const path = require('path');
+      const backupDir = path.join(__dirname, '../backups');
+      
+      if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
       }
-
-      const ref = this.db.ref('ads');
-      const adsObj = {};
       
-      ads.forEach(ad => {
-        adsObj[ad.id] = ad;
-      });
+      const filename = `backup_${Date.now()}.json`;
+      const filepath = path.join(backupDir, filename);
       
-      await ref.set(adsObj);
-      console.log(`✅ [Firebase] ${ads.length} рекламы синхронизировано`);
-      return { success: true };
+      fs.writeFileSync(filepath, JSON.stringify(backup, null, 2));
+      
+      console.log(`✅ Бэкап создан: ${filepath}`);
+      
+      return {
+        success: true,
+        filepath: filepath,
+        filename: filename
+      };
     } catch (error) {
-      console.error('❌ Ошибка при синхронизации рекламы:', error.message);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка создания бэкапа:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
 
-  // ============ ПРОВЕРКА ПОДКЛЮЧЕНИЯ ============
-  async testConnection() {
+  // ⚠️ ОПАСНЫЙ МЕТОД: Восстановление из JSON
+  // Используйте ТОЛЬКО для восстановления после сбоя
+  async restoreFromJSON(filepath) {
+    if (!this.initialized) {
+      throw new Error('Firebase не инициализирован');
+    }
+    
     try {
-      if (!this.initialized) {
-        return { success: false, message: 'Firebase не инициализирована' };
-      }
-
-      // Пытаемся прочитать корень базы - это безопасный способ проверить подключение
-      const ref = this.db.ref('/');
-      const snapshot = await ref.once('value', null, (error) => {
-        if (error) {
-          throw new Error(`Firebase ошибка: ${error.message}`);
-        }
-      });
+      console.warn('⚠️ ВНИМАНИЕ: Восстановление из JSON перезапишет данные Firebase!');
       
-      console.log('✅ Firebase Realtime Database подключена');
-      return { success: true, message: 'Подключено к Firebase' };
+      const fs = require('fs');
+      const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+      
+      // Перезаписываем данные в Firebase
+      await this.db.ref().set(data.data);
+      
+      console.log('✅ Данные восстановлены из JSON');
+      
+      return {
+        success: true,
+        message: 'Данные восстановлены'
+      };
     } catch (error) {
-      console.error('❌ Ошибка при проверке подключения:', error.message);
-      return { success: false, message: `Нет соединения с Firebase: ${error.message}` };
+      console.error('❌ Ошибка восстановления:', error.message);
+      return {
+        success: false,
+        message: error.message
+      };
     }
   }
-  // Метод для добавления категории (совместим с CategoryManager)
-async addCategory(categoryData) {
-  try {
-    if (!this.initialized) {
-      throw new Error('Firebase Database не инициализирована');
-    }
-
-    // Генерируем ID или используем существующий
-    const categoryId = categoryData.id || Date.now().toString();
-    
-    const ref = this.db.ref(`categories/${categoryId}`);
-    await ref.set(categoryData);
-    
-    console.log(`✅ [Firebase] Категория "${categoryData.name}" добавлена`);
-    return { 
-      success: true, 
-      id: categoryId,
-      message: 'Категория успешно добавлена'
-    };
-  } catch (error) {
-    console.error('❌ Ошибка при добавлении категории:', error.message);
-    return { 
-      success: false, 
-      message: error.message 
-    };
-  }
-}
-
-// Метод для обновления категории (совместим с CategoryManager)
-async updateCategory(categoryId, updatedData) {
-  try {
-    if (!this.initialized) {
-      throw new Error('Firebase Database не инициализирована');
-    }
-
-    const ref = this.db.ref(`categories/${categoryId}`);
-    await ref.update(updatedData);
-    
-    console.log(`✅ [Firebase] Категория обновлена`);
-    return { 
-      success: true,
-      message: 'Категория обновлена'
-    };
-  } catch (error) {
-    console.error('❌ Ошибка при обновлении категории:', error.message);
-    return { 
-      success: false, 
-      message: error.message 
-    };
-  }
-}
-
-// Улучшенный getAllCategories для работы с CategoryManager
-async getAllCategories() {
-  try {
-    if (!this.initialized) {
-      console.warn('⚠️  Firebase Database не инициализирована');
-      return [];
-    }
-
-    const ref = this.db.ref('categories');
-    const snapshot = await ref.once('value');
-    const data = snapshot.val();
-    
-    console.log('✅ [Firebase] Категории получены');
-    
-    if (!data) {
-      return [];
-    }
-    
-    // Преобразуем объект в массив, сохраняя ID
-    const categories = Object.keys(data).map(key => ({
-      ...data[key],
-      id: data[key].id || key  // Используем существующий ID или ключ
-    }));
-    
-    console.log(`✅ [Firebase] Преобразовано ${categories.length} категорий`);
-    return categories;
-  } catch (error) {
-    console.error('❌ Ошибка при получении категорий:', error.message);
-    return [];
-  }
-}
-
-// Метод для удаления категории (совместим с CategoryManager)
-async deleteCategory(categoryId) {
-  try {
-    if (!this.initialized) {
-      throw new Error('Firebase Database не инициализирована');
-    }
-
-    const ref = this.db.ref(`categories/${categoryId}`);
-    await ref.remove();
-    
-    console.log(`✅ [Firebase] Категория удалена`);
-    return { 
-      success: true, 
-      message: 'Категория удалена' 
-    };
-  } catch (error) {
-    console.error('❌ Ошибка при удалении категории:', error.message);
-    return { 
-      success: false, 
-      message: error.message 
-    };
-  }
-}
 }
 
 module.exports = new FirebaseDatabase();

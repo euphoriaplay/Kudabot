@@ -201,23 +201,33 @@ const fieldLabels = {
 
   // Метод для очистки callback_data в inline_keyboard
   cleanInlineKeyboard(markup) {
-    if (!markup || !markup.inline_keyboard) return;
-    
-    for (const row of markup.inline_keyboard) {
-      for (const button of row) {
-        if (button.callback_data) {
-          // Очищаем callback_data от недопустимых символов
-          button.callback_data = this.cleanCallbackData(button.callback_data);
-          
-          // Убеждаемся, что длина не превышает 64 байта
-          if (button.callback_data.length > 64) {
-            console.warn(`⚠️ Callback_data слишком длинный: ${button.callback_data.length}, укорачиваю`);
-            button.callback_data = button.callback_data.substring(0, 64);
-          }
+  if (!markup || !markup.inline_keyboard) return;
+  
+  for (const row of markup.inline_keyboard) {
+    for (const button of row) {
+      // ✅ НЕ ПРОВЕРЯЕМ URL через isTelegramSafeUrl
+      // Просто проверяем базовые требования
+      if (button.url) {
+        // Проверяем только базовую валидность URL
+        if (!button.url.startsWith('http://') && !button.url.startsWith('https://')) {
+          console.error(`❌ Удаляю URL без HTTP/HTTPS: ${button.url}`);
+          delete button.url;
+        }
+      }
+      
+      if (button.callback_data) {
+        // Очищаем callback_data от недопустимых символов
+        button.callback_data = this.cleanCallbackData(button.callback_data);
+        
+        // Убеждаемся, что длина не превышает 64 байта
+        if (button.callback_data.length > 64) {
+          console.warn(`⚠️ Callback_data слишком длинный: ${button.callback_data.length}, укорачиваю`);
+          button.callback_data = button.callback_data.substring(0, 64);
         }
       }
     }
   }
+}
 
   // Метод для очистки callback_data
   cleanCallbackData(data) {
@@ -442,33 +452,184 @@ isLikelyMobile(phone) {
 }
 
 normalizeSocialUrl(url) {
-    if (!url || typeof url !== 'string') return url;
+    if (!url || typeof url !== 'string') {
+        return url;
+    }
 
     let normalized = url.trim();
 
-    // Добавляем https:// если нет протокола
-    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
-      normalized = 'https://' + normalized;
+    // Удаляем все пробелы
+    normalized = normalized.replace(/\s+/g, '');
+
+    // ✅ ИСПРАВЛЕНИЕ: Сохраняем протокол отдельно
+    let protocol = '';
+    let urlWithoutProtocol = normalized;
+    
+    // Извлекаем протокол
+    if (normalized.startsWith('https://')) {
+        protocol = 'https://';
+        urlWithoutProtocol = normalized.substring(8);
+    } else if (normalized.startsWith('http://')) {
+        protocol = 'http://';
+        urlWithoutProtocol = normalized.substring(7);
+    }
+    
+    // Удаляем лишние слэши из основной части URL (НЕ из протокола)
+    urlWithoutProtocol = urlWithoutProtocol.replace(/\/+/g, '/');
+    
+    // Собираем обратно
+    if (protocol) {
+        normalized = protocol + urlWithoutProtocol;
+    } else {
+        // Если нет протокола, добавляем https://
+        normalized = 'https://' + urlWithoutProtocol;
     }
 
-    // Удаляем слеш в конце
-    normalized = normalized.replace(/\/$/, '');
+    // Удаляем слэш в конце URL
+    if (normalized.endsWith('/') && normalized.length > 8) {
+        normalized = normalized.slice(0, -1);
+    }
+
+    // ✅ Финальная проверка и очистка через URL API
+    try {
+        const urlObj = new URL(normalized);
+        // Пересобираем URL из компонентов
+        normalized = urlObj.protocol + '//' + urlObj.host + urlObj.pathname + urlObj.search + urlObj.hash;
+        
+        // Удаляем конечный слэш если это не корневой путь
+        if (normalized.endsWith('/') && urlObj.pathname !== '/') {
+            normalized = normalized.slice(0, -1);
+        }
+    } catch (error) {
+        console.warn(`⚠️ Неверный формат URL при нормализации: ${url}`, error.message);
+    }
 
     return normalized;
-  }
+}
+
+getValidSocialLinks(place) {
+    try {
+        console.log('🔍 [DEBUG getValidSocialLinks] Исходные данные места:', {
+            name: place.name,
+            social_links: place.social_links,
+            type: typeof place.social_links,
+            isArray: Array.isArray(place.social_links)
+        });
+
+        // 🔴 ИСПРАВЛЕНИЕ: Обработка разных форматов social_links
+        let socialLinks = {};
+
+        // Если social_links - это объект
+        if (place.social_links && typeof place.social_links === 'object') {
+            // Проверяем, массив ли это
+            if (Array.isArray(place.social_links)) {
+                console.warn('⚠️ [DEBUG] social_links является массивом, преобразую в объект');
+                // Преобразуем массив [[key, value], ...] в объект
+                for (const item of place.social_links) {
+                    if (Array.isArray(item) && item.length >= 2) {
+                        const [key, value] = item;
+                        if (key && value) {
+                            socialLinks[key] = value;
+                        }
+                    } else if (item && typeof item === 'object' && item.name && item.url) {
+                        // Формат: {name: "Instagram", url: "https://..."}
+                        socialLinks[item.name] = item.url;
+                    }
+                }
+            } else {
+                // Если это обычный объект
+                socialLinks = { ...place.social_links };
+            }
+        } 
+        // Если это строка JSON
+        else if (typeof place.social_links === 'string') {
+            try {
+                const parsed = JSON.parse(place.social_links);
+                if (parsed && typeof parsed === 'object') {
+                    socialLinks = { ...parsed };
+                }
+            } catch (error) {
+                console.warn('⚠️ Не удалось распарсить social_links как JSON');
+            }
+        }
+
+        // 🔴 ИСПРАВЛЕНИЕ: Очищаем и нормализуем каждый URL
+        const cleanSocialLinks = {};
+        
+        for (const [name, url] of Object.entries(socialLinks)) {
+            try {
+                if (!url || typeof url !== 'string') {
+                    console.warn(`⚠️ Пропускаем ${name}: URL не строка или пустой`);
+                    continue;
+                }
+                
+                const normalizedUrl = this.normalizeSocialUrl(url);
+                
+                if (normalizedUrl && normalizedUrl.trim() !== '') {
+                    cleanSocialLinks[name] = normalizedUrl;
+                    console.log(`✅ Нормализован URL: ${name} -> ${normalizedUrl}`);
+                } else {
+                    console.warn(`❌ Невалидный URL для ${name}: ${url}`);
+                }
+            } catch (error) {
+                console.error(`❌ Ошибка обработки URL для ${name}:`, error.message);
+            }
+        }
+
+        console.log('🔍 [DEBUG getValidSocialLinks] Результат:', cleanSocialLinks);
+        return cleanSocialLinks;
+
+    } catch (error) {
+        console.error('❌ Ошибка в getValidSocialLinks:', error);
+        return {};
+    }
+}
 
   // Метод для валидации URL соцсети
-  isValidSocialUrl(url) {
-    if (!url || typeof url !== 'string') return false;
+isValidSocialUrl(url) {
+  if (!url || typeof url !== 'string') {
+    console.warn(`❌ [isValidSocialUrl] Пустой URL или не строка:`, url);
+    return false;
+  }
 
-    // Проверяем, что это валидный URL
-    try {
-      const urlObj = new URL(url);
-      return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
-    } catch (e) {
+  try {
+    // Очищаем URL перед валидацией
+    const cleanedUrl = url.trim();
+    
+    // Проверяем минимальную длину
+    if (cleanedUrl.length < 10) {
+      console.warn(`❌ [isValidSocialUrl] URL слишком короткий: ${cleanedUrl}`);
       return false;
     }
+    
+    // Проверяем базовую структуру
+    if (!cleanedUrl.includes('.')) {
+      console.warn(`❌ [isValidSocialUrl] URL не содержит точку: ${cleanedUrl}`);
+      return false;
+    }
+    
+    // Проверяем протокол
+    if (!cleanedUrl.startsWith('http://') && !cleanedUrl.startsWith('https://')) {
+      console.warn(`❌ [isValidSocialUrl] URL не начинается с http/https: ${cleanedUrl}`);
+      return false;
+    }
+    
+    // Пытаемся создать объект URL
+    const urlObj = new URL(cleanedUrl);
+    
+    // Проверяем наличие hostname
+    if (!urlObj.hostname || urlObj.hostname.length < 3) {
+      console.warn(`❌ [isValidSocialUrl] Неверный hostname: ${urlObj.hostname}`);
+      return false;
+    }
+    
+    return true;
+    
+  } catch (error) {
+    console.warn(`❌ [isValidSocialUrl] Неверный формат URL "${url}":`, error.message);
+    return false;
   }
+}
 
   // Метод для получения иконки соцсети
   getSocialIcon(url) {
@@ -693,6 +854,52 @@ async handleEditSocialItem(chatId, cityKey, placeId, socialName) {
     await this.sendAdminMessage(chatId, '❌ Произошла ошибка.');
   }
 }
+
+async testUberDeeplink(chatId, place) {
+  if (!place.latitude || !place.longitude) {
+    await this.sendAdminMessage(chatId, '❌ Нет координат для теста Uber');
+    return;
+  }
+  
+  const deeplink = this.generateUberLink(place);
+  const webLink = this.generateUberWebLink(place);
+  
+  let message = `🚗 *Тест Uber deeplink*\n\n`;
+  message += `📍 *Место:* ${place.name}\n`;
+  message += `🌍 *Координаты:* ${place.latitude}, ${place.longitude}\n`;
+  message += `📌 *Адрес:* ${place.address || 'нет'}\n`;
+  message += `🏷️ *Google Place ID:* ${place.google_place_id || 'нет'}\n\n`;
+  
+  message += `*Deeplink (для приложения):*\n`;
+  message += `\`${deeplink}\`\n\n`;
+  
+  message += `*Веб-ссылка (для браузера):*\n`;
+  message += `\`${webLink}\`\n\n`;
+  
+  message += `📱 *На мобильном устройстве* deeplink откроет приложение Uber.\n`;
+  message += `💻 *На десктопе* можно использовать веб-версию.`;
+  
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '🚗 Открыть в приложении', url: deeplink }
+      ],
+      [
+        { text: '🌐 Открыть в браузере', url: webLink }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
+
+
 
 // Метод для удаления соцсети
 async handleDeleteSocialItem(chatId, cityKey, placeId, socialName) {
@@ -1131,6 +1338,316 @@ async handleEditingSocialItem(chatId, msg, state) {
   }
 }
 
+// ============ ИСПРАВЛЕННЫЙ МЕТОД ДЛЯ UBER ============
+
+// Генерация ссылки на Uber (только HTTP/HTTPS для Telegram)
+generateUberLink(place) {
+  if (!place.latitude || !place.longitude) {
+    console.log('🚗 Нет координат для Uber');
+    return null;
+  }
+  
+  console.log('🚗 [DEBUG Uber] Генерирую ссылку с данными:', {
+    name: place.name,
+    address: place.address,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    google_place_id: place.google_place_id
+  });
+  
+  const encodedName = encodeURIComponent(place.name || 'Место назначения');
+  
+  // ✅ ИСПРАВЛЕНИЕ: Используем HTTPS Universal Link вместо deeplink
+  // Этот формат работает везде и автоматически откроет приложение если оно установлено
+  
+  // Если есть Google Place ID - используем его
+  if (place.google_place_id) {
+    const uberLink = `https://m.uber.com/ul/?action=setPickup` +
+                    `&pickup=my_location` +
+                    `&dropoff[latitude]=${place.latitude}` +
+                    `&dropoff[longitude]=${place.longitude}` +
+                    `&dropoff[nickname]=${encodedName}` +
+                    `&dropoff[place_id]=${encodeURIComponent(place.google_place_id)}`;
+    
+    console.log(`🚗 Universal Link с Place ID: ${uberLink}`);
+    return uberLink;
+  }
+  
+  // Без Place ID - только координаты
+  const uberLink = `https://m.uber.com/ul/?action=setPickup` +
+                  `&pickup=my_location` +
+                  `&dropoff[latitude]=${place.latitude}` +
+                  `&dropoff[longitude]=${place.longitude}` +
+                  `&dropoff[nickname]=${encodedName}`;
+  
+  console.log(`🚗 Universal Link без Place ID: ${uberLink}`);
+  return uberLink;
+}
+
+// Метод для получения ссылки Uber с приоритетом старых данных
+getUberLinkForPlace(place) {
+  try {
+    // Генерируем deeplink - он будет работать на мобильных устройствах
+    const link = this.generateUberLink(place);
+    
+    if (!link) {
+      console.log('🚗 Не удалось создать ссылку Uber');
+      return null;
+    }
+    
+    return link;
+    
+  } catch (error) {
+    console.error('🚗 Ошибка при создании ссылки Uber:', error);
+    return null;
+  }
+}
+// Альтернативная простая версия (если сложная не работает)
+generateUberSimpleLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Простая ссылка с координатами и названием
+  const encodedName = encodeURIComponent(place.name || 'Место');
+  return `https://m.uber.com/ul/?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodedName}`;
+}
+
+// Умная ссылка, которая пробует разные форматы
+generateSmartUberLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Возвращаем deeplink - Telegram на мобильных устройствах откроет приложение
+  // На десктопе можно добавить кнопку с веб-версией отдельно
+  return this.generateUberLink(place);
+}
+
+// Прямой deeplink для приложения Uber (может открыть приложение)
+generateUberDeepLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Deeplink для прямого открытия приложения
+  const encodedName = encodeURIComponent(place.name || 'Место');
+  return `uber://?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodedName}`;
+}
+
+// Улучшенный метод для Uber с выбором формата
+generateUberLinkImproved(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Проверяем, есть ли все необходимые данные для старого формата
+  if (place.name && place.address && place.google_place_id) {
+    console.log(`🚗 Используем старый формат с полными данными`);
+    return this.generateUberLink(place);
+  }
+  
+  // Если нет полных данных, используем простой формат
+  console.log(`🚗 Используем простой формат с координатами`);
+  return this.generateUberSimpleLink(place);
+}
+
+// Метод для тестирования Uber ссылок
+async testUberLink(chatId, place) {
+  if (!place.latitude || !place.longitude) {
+    await this.sendAdminMessage(chatId, '❌ Нет координат для теста Uber');
+    return;
+  }
+  
+  const oldLink = this.generateUberLink(place);
+  const simpleLink = this.generateUberSimpleLink(place);
+  const deeplink = this.generateUberDeepLink(place);
+  
+  let message = `🚗 *Тест ссылок Uber*\n\n`;
+  message += `📍 *Место:* ${place.name}\n`;
+  message += `🌍 *Координаты:* ${place.latitude}, ${place.longitude}\n`;
+  message += `📌 *Адрес:* ${place.address || 'нет'}\n`;
+  message += `🏷️ *Google Place ID:* ${place.google_place_id || 'нет'}\n\n`;
+  
+  message += `*Ссылки:*\n`;
+  message += `1. *Старый формат:*\n\`${oldLink}\`\n\n`;
+  message += `2. *Простой формат:*\n\`${simpleLink}\`\n\n`;
+  message += `3. *Deeplink:*\n\`${deeplink}\``;
+  
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '🚗 Старый формат', url: oldLink },
+        { text: '🚗 Простой формат', url: simpleLink }
+      ],
+      [
+        { text: '📱 Deeplink', url: deeplink }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
+// Метод для проверки, что URL безопасен для Telegram
+isTelegramSafeUrl(url) {
+  if (!url || typeof url !== 'string') {
+    console.warn('⚠️ Пустой URL при проверке безопасности');
+    return false;
+  }
+  
+  const trimmed = url.trim();
+  
+  // Telegram поддерживает только HTTP и HTTPS
+  const allowedProtocols = ['http://', 'https://'];
+  
+  const hasAllowedProtocol = allowedProtocols.some(protocol => 
+    trimmed.toLowerCase().startsWith(protocol)
+  );
+  
+  if (!hasAllowedProtocol) {
+    console.error(`❌ Telegram не поддерживает протокол в URL: ${trimmed.substring(0, 50)}...`);
+    return false;
+  }
+  
+  return true;
+}
+// Дополнительная очистка inline-кнопок
+
+// Альтернативная версия с более простыми параметрами
+generateUberSimpleLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Самый простой и надежный вариант
+  const simpleLink = `https://m.uber.com/ul/?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodeURIComponent(place.name || 'Место')}`;
+  console.log(`🚗 Простая ссылка Uber: ${simpleLink}`);
+  
+  return simpleLink;
+}
+
+// Прямой deeplink для приложения Uber
+generateUberDeepLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Deeplink для прямого открытия приложения Uber
+  const deeplink = `uber://?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodeURIComponent(place.name || 'Место')}`;
+  console.log(`📱 Deeplink Uber: ${deeplink}`);
+  
+  return deeplink;
+}
+
+// Умная ссылка: пробует deeplink, потом web
+generateSmartUberLink(place) {
+  // На мобильных устройствах Telegram пробует сначала deeplink
+  // Если приложение не установлено, откроется web-версия
+  
+  const deeplink = this.generateUberDeepLink(place);
+  const webLink = this.generateUberSimpleLink(place);
+  
+  // Telegram поддерживает специальный формат для нескольких URL
+  // Но в простом случае используем универсальную ссылку
+  console.log(`🔗 Умная ссылка: предпочитаем веб-версию для кросс-платформенности`);
+  return webLink;
+}
+
+generateUberWebLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  const encodedName = encodeURIComponent(place.name || 'Место');
+  
+  // Универсальная веб-ссылка Uber
+  const webLink = `https://m.uber.com/ul/?action=setPickup` +
+                 `&pickup=my_location` +
+                 `&dropoff[latitude]=${place.latitude}` +
+                 `&dropoff[longitude]=${place.longitude}` +
+                 `&dropoff[nickname]=${encodedName}`;
+  
+  return webLink;
+}
+
+// Расширенная версия с дополнительными возможностями (без deeplink)
+async showUberOptions(chatId, place, cityKey) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  const message = `🚗 *Вызов такси Uber*\n\n` +
+    `📍 *Куда:* ${place.name}\n` +
+    `📌 *Адрес:* ${place.address || 'адрес не указан'}\n\n` +
+    `*Выберите вариант:*`;
+  
+  const inlineKeyboard = {
+    inline_keyboard: []
+  };
+  
+  // Только веб-версия (без deeplink)
+  const uberLink = this.getUberLinkForPlace(place);
+  if (uberLink) {
+    inlineKeyboard.inline_keyboard.push([
+      { 
+        text: '🚗 Вызвать Uber', 
+        url: uberLink 
+      }
+    ]);
+  }
+  
+  // Маршрут в Google Maps
+  inlineKeyboard.inline_keyboard.push([
+    { 
+      text: '🗺️ Построить маршрут', 
+      url: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=driving` 
+    }
+  ]);
+  
+  // Копировать координаты
+  inlineKeyboard.inline_keyboard.push([
+    { 
+      text: '📋 Скопировать координаты', 
+      callback_data: `copy_coords:${place.latitude}:${place.longitude}` 
+    }
+  ]);
+  
+  // Назад к месту
+  inlineKeyboard.inline_keyboard.push([
+    { 
+      text: '🔙 Назад к месту', 
+      callback_data: `show_place:${cityKey}:${place.id}` 
+    }
+  ]);
+  
+  await this.sendAndTrack(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
+
+// Обработчик для копирования координат
+async handleCopyCoords(chatId, latitude, longitude) {
+  const coords = `${latitude},${longitude}`;
+  
+  await this.sendAndTrack(
+    chatId,
+    `📍 *Координаты для навигации:*\n\n` +
+    `\`${coords}\`\n\n` +
+    `*Инструкция:*\n` +
+    `1. Нажмите на координаты выше для выделения\n` +
+    `2. Нажмите "Копировать"\n` +
+    `3. Вставьте в любое навигационное приложение`,
+    { parse_mode: 'Markdown' }
+  );
+}
+
 async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
   try {
     const cityName = await this.getCityNameFromKey(cityKey);
@@ -1141,19 +1658,10 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       userId = userState?.userId || chatId;
     }
 
-    console.log(`🔍 [DEBUG showPlaceDetails] userId: ${userId}, chatId: ${chatId}`);
-
     if (!place) {
       await this.sendAndTrack(chatId, '❌ Место не найдено.');
       return;
     }
-
-    console.log('🔍 [DEBUG showPlaceDetails] Данные места:', {
-      name: place.name,
-      socialLinks: place.social_links || 'нет',
-      socialLinksType: typeof place.social_links,
-      socialLinksKeys: place.social_links ? Object.keys(place.social_links) : []
-    });
 
     const category = await categoryManager.getCategoryById(place.category_id);
 
@@ -1162,21 +1670,10 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
 
     if (place.photos && Array.isArray(place.photos) && place.photos.length > 0) {
       const photo = place.photos[0];
-
       if (photo && typeof photo === 'object' && photo.url) {
         photoUrl = photo.url;
-      } else if (photo && typeof photo === 'object' && photo.fileName) {
-        const bucketName = 'help-tasc-progect.firebasestorage.app';
-        photoUrl = `https://storage.googleapis.com/${bucketName}/photos/${photo.fileName}`;
       } else if (typeof photo === 'string' && photo.startsWith('http')) {
         photoUrl = photo;
-      } else if (typeof photo === 'string' && photo.length > 10) {
-        const bucketName = 'help-tasc-progect.firebasestorage.app';
-        photoUrl = `https://storage.googleapis.com/${bucketName}/photos/${photo}`;
-      }
-
-      if (photoUrl) {
-        console.log(`🖼️ Найдена ссылка на фото для превью: ${photoUrl.substring(0, 50)}...`);
       }
     }
 
@@ -1203,10 +1700,19 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       message += `\n📞 *Телефон:* ${place.phone}\n`;
     }
 
+    // 🔴 УЛУЧШЕННЫЙ МЕТОД ПОЛУЧЕНИЯ СОЦСЕТЕЙ
+    const socialLinks = this.getValidSocialLinks(place);
+    
+    console.log('🔍 [DEBUG showPlaceDetails] Соцсети после обработки:', {
+      hasSocialLinks: !!socialLinks,
+      count: Object.keys(socialLinks || {}).length,
+      data: socialLinks
+    });
+    
     // ✅ ОТОБРАЖЕНИЕ СОЦСЕТЕЙ В ТЕКСТЕ
-    if (place.social_links && Object.keys(place.social_links).length > 0) {
+    if (socialLinks && Object.keys(socialLinks).length > 0) {
       message += `\n📱 *Социальные сети:*\n`;
-      Object.entries(place.social_links).forEach(([name, url]) => {
+      Object.entries(socialLinks).forEach(([name, url]) => {
         const icon = this.getSocialIcon(url);
         message += `• ${icon} ${name}: ${url}\n`;
       });
@@ -1216,73 +1722,73 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       inline_keyboard: []
     };
 
-    // ✅ ДОБАВЛЯЕМ КНОПКИ СОЦСЕТЕЙ
-    if (place.social_links && Object.keys(place.social_links).length > 0) {
-      console.log(`🔍 Создаю кнопки для соцсетей:`, Object.entries(place.social_links));
+    // ✅ ДОБАВЛЯЕМ КНОПКИ СОЦСЕТЕЙ (ОБЯЗАТЕЛЬНО)
+    if (socialLinks && Object.keys(socialLinks).length > 0) {
+      console.log(`🔍 Создаю кнопки для соцсетей:`, Object.entries(socialLinks));
       
-      const socialEntries = Object.entries(place.social_links);
+      const socialEntries = Object.entries(socialLinks);
       
       // Группируем по 2 кнопки в ряд
       for (let i = 0; i < socialEntries.length; i += 2) {
         const row = socialEntries.slice(i, i + 2).map(([name, url]) => {
           const icon = this.getSocialIcon(url);
           const normalizedUrl = this.normalizeSocialUrl(url);
+          
+          // ✅ БОЛЕЕ ЛОЯЛЬНАЯ ПРОВЕРКА URL
+          if (!normalizedUrl || normalizedUrl.trim() === '') {
+            console.warn(`⚠️ Пустой URL для ${name}`);
+            return null;
+          }
+          
+          // Проверяем базовую структуру URL
+          const urlToUse = normalizedUrl.startsWith('http') ? normalizedUrl : `https://${normalizedUrl}`;
+          
           return {
-            text: `${icon} ${name}`,
-            url: normalizedUrl
+            text: `${icon} ${name.substring(0, 15)}${name.length > 15 ? '...' : ''}`,
+            url: urlToUse
           };
-        });
-        inlineKeyboard.inline_keyboard.push(row);
+        }).filter(button => button !== null); // Удаляем невалидные кнопки
+        
+        if (row.length > 0) {
+          inlineKeyboard.inline_keyboard.push(row);
+        }
       }
     }
 
-    // ✅ ДОБАВЛЯЕМ КНОПКУ ЗВОНКА ЕСЛИ ЕСТЬ ТЕЛЕФОН
-
-
     // ✅ КНОПКИ САЙТА И КАРТЫ
     if (place.website) {
-      inlineKeyboard.inline_keyboard.push([
-        { text: '🌐 Открыть сайт', url: place.website }
-      ]);
+      const normalizedWebsite = this.normalizeSocialUrl(place.website);
+      if (normalizedWebsite && normalizedWebsite.trim() !== '') {
+        const urlToUse = normalizedWebsite.startsWith('http') ? normalizedWebsite : `https://${normalizedWebsite}`;
+        inlineKeyboard.inline_keyboard.push([
+          { text: '🌐 Открыть сайт', url: urlToUse }
+        ]);
+      }
     }
 
     if (place.map_url) {
-      inlineKeyboard.inline_keyboard.push([
-        { text: '📍 Показать на карте', url: place.map_url }
-      ]);
+      const normalizedMapUrl = this.normalizeSocialUrl(place.map_url);
+      if (normalizedMapUrl && normalizedMapUrl.trim() !== '') {
+        const urlToUse = normalizedMapUrl.startsWith('http') ? normalizedMapUrl : `https://${normalizedMapUrl}`;
+        inlineKeyboard.inline_keyboard.push([
+          { text: '📍 Показать на карте', url: urlToUse }
+        ]);
+      }
     }
 
-// ✅ КНОПКИ ТАКСИ (если есть координаты)
-if (place.latitude && place.longitude) {
-  const taxiRow = [];
-  
-  // Uber
-  const uberDropoff = {
-    addressLine1: place.name,
-    addressLine2: place.address || "",
-    id: place.google_place_id || "",
-    source: "SEARCH",
-    latitude: place.latitude,
-    longitude: place.longitude,
-    provider: "google_places"
-  };
-  
-  const uberDropoffEncoded = encodeURIComponent(JSON.stringify(uberDropoff));
-  taxiRow.push({
-    text: '🚗 Uber',
-    url: `https://m.uber.com/go/pickup?drop%5B0%5D=${uberDropoffEncoded}`
-  });
-  
-  // Google Maps маршрут
-  taxiRow.push({
-    text: '🗺️ Маршрут',
-    url: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=driving`
-  });
-  
-  if (taxiRow.length > 0) {
-    inlineKeyboard.inline_keyboard.push(taxiRow);
-  }
-}
+    // ✅ КНОПКИ ТАКСИ
+    if (place.latitude && place.longitude) {
+      const uberLink = this.getUberLinkForPlace(place);
+      
+      if (uberLink) {
+        inlineKeyboard.inline_keyboard.push([
+          {
+            text: '🚗 Вызвать Uber',
+            url: uberLink
+          }
+        ]);
+      }
+    }
 
     // ✅ КНОПКА "СКОПИРОВАТЬ НОМЕР"
     if (place.phone) {
@@ -1334,6 +1840,34 @@ if (place.latitude && place.longitude) {
     });
 
     inlineKeyboard.inline_keyboard.push(navigationRow);
+
+    // 🔴 ОБЯЗАТЕЛЬНАЯ ВАЛИДАЦИЯ И ОЧИСТКА КЛАВИАТУРЫ
+    this.cleanInlineKeyboard(inlineKeyboard);
+    
+    console.log('🔍 [DEBUG] Клавиатура перед отправкой:', JSON.stringify(inlineKeyboard, null, 2));
+    
+    if (!this.validateReplyMarkup(inlineKeyboard)) {
+      console.error('❌ Некорректная клавиатура после очистки');
+      // Создаем простую клавиатуру без проблемных кнопок
+      const simpleKeyboard = {
+        inline_keyboard: [
+          [
+            { text: '🔙 К категории', callback_data: `select_category:${cityKey}:${place.category_id}` },
+            { text: '🔙 К городу', callback_data: `select_city:${cityKey}` }
+          ],
+          [
+            { text: '⚠️ Что-то не так?', callback_data: `report_issue:${cityKey}:${placeId}` }
+          ]
+        ]
+      };
+      
+      await this.sendAndTrack(chatId, message, {
+        parse_mode: 'Markdown',
+        reply_markup: simpleKeyboard,
+        disable_web_page_preview: false
+      });
+      return;
+    }
 
     // 📝 ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МЕСТЕ
     await this.sendAndTrack(chatId, message, {
@@ -1579,6 +2113,39 @@ if (place.latitude && place.longitude) {
       }
     });
 
+this.bot.onText(/\/testuber/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) {
+    await this.sendAdminMessage(chatId, '❌ У вас нет доступа к этой команде.');
+    return;
+  }
+  
+  await this.deleteLastMessage(chatId);
+  
+  const cities = await cityManager.getAllCities();
+  if (cities.length === 0) {
+    await this.sendAdminMessage(chatId, '📭 Нет городов для теста.');
+    return;
+  }
+  
+  const cityName = cities[0];
+  const places = await placeManager.getPlacesByCity(cityName);
+  
+  const testPlace = places.find(p => p.latitude && p.longitude);
+  
+  if (!testPlace) {
+    await this.sendAdminMessage(chatId, '❌ Нет мест с координатами для теста Uber.');
+    return;
+  }
+  
+  await this.testUberDeeplink(chatId, testPlace);
+});
+
+
+
+    
     this.bot.onText(/\/start/, async (msg) => {
       const chatId = msg.chat.id;
       const userId = msg.from.id;
@@ -2058,6 +2625,11 @@ this.bot.on('message', async (msg) => {
         await this.showPlacesByCategory(chatId, params[0], params[1]);
         break;
         
+      case 'copy_coords':
+        await this.handleCopyCoords(chatId, params[0], params[1]);
+        break;
+
+
         case 'copy_phone':
         await this.handleCopyPhone(chatId, params[0], params[1]);
         break;
@@ -2384,6 +2956,39 @@ case 'delete_social_item':
         );
     }
   }
+
+// Метод тестирования Uber
+async testUberLink(chatId, place) {
+  const uberLink = this.getUberLinkForPlace(place);
+  const googleMapsLink = `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=driving`;
+  
+  let message = `🚗 *Тест ссылок Uber*\n\n`;
+  message += `📍 *Место:* ${place.name}\n`;
+  message += `🌍 *Координаты:* ${place.latitude}, ${place.longitude}\n`;
+  message += `📌 *Адрес:* ${place.address || 'нет'}\n`;
+  message += `🏷️ *Google Place ID:* ${place.google_place_id || 'нет'}\n\n`;
+  message += `*Ссылка Uber:*\n\`${uberLink}\`\n\n`;
+  message += `*Проверка:*\n`;
+  message += `• Протокол: ${uberLink?.startsWith('https://') ? '✅ HTTPS' : '❌ Не HTTPS'}\n`;
+  message += `• Telegram безопасность: ${this.isTelegramSafeUrl(uberLink) ? '✅ Безопасно' : '❌ Небезопасно'}\n`;
+  
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '🚗 Открыть Uber', url: uberLink },
+        { text: '🗺️ Маршрут', url: googleMapsLink }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
 
   async handleAdsManagement(chatId, action) {
     switch(action) {

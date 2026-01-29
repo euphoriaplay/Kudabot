@@ -1,0 +1,96 @@
+{
+  "name": "test1",
+  "places": [
+    {
+      "id": "ed916d54-bc62-4552-ac4a-f727f9a41971",
+      "name": "тест",
+      "address": "опропекпукеоптепкплкоештщр",
+      "working_hours": "24",
+      "average_price": "12345676",
+      "description": "tjignrthrthirtuhrjhrhrthrt",
+      "category_id": "39",
+      "category_name": "тест1",
+      "category_emoji": "⚠️",
+      "website": "https://open.spotify.com/playlist/37i9dQZF1E38bcoKsJduRY",
+      "phone": "+34963404102",
+      "contacts": null,
+      "map_url": "https://www.google.com/maps/place/Restaurante+Japon%C3%A9s+Kyoto/@39.4795325,-0.3922598,19.06z/data=!3m1!5s0x471932d88fc772c5:0x1524ed17e964b81c!4m14!1m7!3m6!1s0x471eccf30d8d5ef7:0x23b86eb563b8bbf6!2sWestfield+Mokot%C3%B3w!8m2!3d52.1789336!4d21.0038123!16s%2Fm%2F026_s0t!3m5!1s0xd604fab54448b91:0x75555c03b49e3b48!8m2!3d39.4791771!4d-0.3919329!16s%2Fg%2F11t79s4r6f?entry=ttu&g_ep=EgoyMDI2MDEyNS4wIKXMDSoASAFQAw%3D%3D",
+      "latitude": 39.4791771,
+      "longitude": -0.3919329,
+      "google_place_id": "0xd604fab54448b91:0x75555c03b49e3b48",
+      "created_at": "2026-01-29T00:37:45.938Z",
+      "updated_at": "2026-01-29T00:37:45.938Z",
+      "photos": [
+        {
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1769647063621_avjt5.jpg",
+          "fileName": "photo_1769647063621_avjt5.jpg",
+          "uploadedAt": "2026-01-29T00:37:45.431Z",
+          "telegramFileId": "AgACAgIAAxkBAAIFqml6o4yrsCl7N3-FRCvIPGiGyh5CAAJtDmsbOqbZS3FjIxHUo6iGAQADAgADeQADOAQ"
+        }
+      ]
+    },
+    {
+      "id": "d01a28fd-130c-4a8a-87a9-bd7fce9a61a8",
+      "name": "тест",
+      "address": "валодпавдлрьеотлжеоерн",
+      "working_hours": "10-20",
+      "average_price": "10000-20000",
+      "description": "тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест тест",
+      "category_id": "39",
+      "category_name": "тест1",
+      "category_emoji": "⚠️",
+      "website": "https://open.spotify.com/playlist/37i9dQZF1E38bcoKsJduRY",
+      "phone": "+34963404102",
+      "contacts": null,
+      "map_url": "https://www.google.com/maps/place/Restaurante+Japon%C3%A9s+Kyoto/@39.4795325,-0.3922598,19.06z/data=!3m1!5s0x471932d88fc772c5:0x1524ed17e964b81c!4m14!1m7!3m6!1s0x471eccf30d8d5ef7:0x23b86eb563b8bbf6!2sWestfield+Mokot%C3%B3w!8m2!3d52.1789336!4d21.0038123!16s%2Fm%2F026_s0t!3m5!1s0xd604fab54448b91:0x75555c03b49e3b48!8m2!3d39.4791771!4d-0.3919329!16s%2Fg%2F11t79s4r6f?entry=ttu&g_ep=EgoyMDI2MDEyNS4wIKXMDSoASAFQAw%3D%3D",
+      "latitude": 39.4791771,
+      "longitude": -0.3919329,
+      "google_place_id": "0xd604fab54448b91:0x75555c03b49e3b48",
+      "created_at": "2026-01-29T00:48:26.410Z",
+      "updated_at": "2026-01-29T00:48:26.410Z",
+      "photos": [
+        {
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1769647704213_l6hci8.jpg",
+          "fileName": "photo_1769647704213_l6hci8.jpg",
+          "uploadedAt": "2026-01-29T00:48:25.896Z",
+          "telegramFileId": "AgACAgIAAxkBAAIGG2l6rlZZ-RRSVK7crTaaNqpAAAHN2gACcw5rGzqm2UvZsghzIfVfVAEAAwIAA3kAAzgE"
+        }
+      ]
+    },
+    {
+      "id": "ee0c92b3-6823-42c1-9724-85ee8949726d",
+      "name": "тест1",
+      "address": "уполткеплкеьпколеткеркеркр",
+      "working_hours": "10-20",
+      "average_price": "100-2000",
+      "description": "тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1 тест 1",
+      "category_id": "39",
+      "category_name": "тест1",
+      "category_emoji": "⚠️",
+      "website": "https://open.spotify.com/playlist/37i9dQZF1E38bcoKsJduRY",
+      "phone": "+34963404102",
+      "contacts": null,
+      "map_url": "https://www.google.com/maps/place/Restaurante+Japon%C3%A9s+Kyoto/@39.4795325,-0.3922598,19.06z/data=!3m1!5s0x471932d88fc772c5:0x1524ed17e964b81c!4m14!1m7!3m6!1s0x471eccf30d8d5ef7:0x23b86eb563b8bbf6!2sWestfield+Mokot%C3%B3w!8m2!3d52.1789336!4d21.0038123!16s%2Fm%2F026_s0t!3m5!1s0xd604fab54448b91:0x75555c03b49e3b48!8m2!3d39.4791771!4d-0.3919329!16s%2Fg%2F11t79s4r6f?entry=ttu&g_ep=EgoyMDI2MDEyNS4wIKXMDSoASAFQAw%3D%3D",
+      "latitude": 39.4791771,
+      "longitude": -0.3919329,
+      "google_place_id": "0xd604fab54448b91:0x75555c03b49e3b48",
+      "social_links": {
+        "https": "https://www.instagram.com/artiishocker"
+      },
+      "created_at": "2026-01-29T00:53:49.126Z",
+      "updated_at": "2026-01-29T00:53:49.126Z",
+      "photos": [
+        {
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1769648027375_6p8x8m.jpg",
+          "fileName": "photo_1769648027375_6p8x8m.jpg",
+          "uploadedAt": "2026-01-29T00:53:48.609Z",
+          "telegramFileId": "AgACAgIAAxkBAAIGQml6r5p4RYUp_Rmu78dmcYtkrSnpAAJ2DmsbOqbZS2CkVRcJSjo0AQADAgADeQADOAQ"
+        }
+      ]
+    }
+  ],
+  "photo": null,
+  "updatedAt": "2026-01-29T00:53:49.127Z",
+  "_backup": true,
+  "_backupTimestamp": "2026-01-29T00:20:04.312Z"
+}

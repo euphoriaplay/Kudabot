@@ -9,6 +9,8 @@ const firebaseDatabase = require('./utils/firebaseDatabase');
 const axios = require('axios');
 const adsManager = require('./utils/adsManager');
 
+const { initializeAllManagers } = require('./firebaseInitializer');
+
 class CityGuideBot {
   constructor(telegramBot, adminIds = [], botToken) {
     this.bot = telegramBot;
@@ -42,23 +44,32 @@ const fieldLabels = {
     this.firebaseDB = firebaseDatabase;
     this.startCleanupInterval();
     
-    // ✅ Инициализируем Firebase в менеджерах
-    if (firebaseDatabase && firebaseDatabase.initialized) {
-      categoryManager.setFirebaseDB(firebaseDatabase);
-      adsManager.setFirebaseDB(firebaseDatabase);
-      cityManager.setFirebaseDB(firebaseDatabase);
-      placeManager.firebaseDB = firebaseDatabase;
-      console.log('✅ Менеджеры инициализированы с Firebase');
+// ✅ ДОБАВЬТЕ ЭТО СРАЗУ ПОСЛЕ ИНИЦИАЛИЗАЦИИ FIREBASE DB
+// Инициализируем менеджеры с Firebase
+const { initializeAllManagers } = require('./firebaseInitializer');
+setTimeout(async () => {
+  try {
+    const initialized = await initializeAllManagers();
+    if (initialized) {
+      console.log('✅ Все менеджеры работают через Firebase');
+      
+      // Фоновая синхронизация данных
+      setTimeout(async () => {
+        await this.syncLocalDataToFirebase();
+      }, 5000);
+    } else {
+      console.log('⚠️ Менеджеры работают в локальном режиме');
     }
-    
-    // Инициализация Firebase Database
-    try {
-      console.log('🔧 Статус Firebase Database:', 
-        this.firebaseDB.initialized ? '✅ Инициализирована' : '❌ Не инициализирована');
-    } catch (error) {
-      console.error('❌ Не удалось загрузить Firebase Database:', error.message);
-      this.firebaseDB = null;
-    }
+  } catch (error) {
+    console.error('❌ Ошибка инициализации менеджеров:', error);
+  }
+}, 1000);
+
+
+
+    // ✅ Проверка Firebase Database
+    console.log('🔧 Статус Firebase Database:', 
+      this.firebaseDB && this.firebaseDB.initialized ? '✅ Инициализирована' : '❌ Не инициализирована');
     
     // Инициализация Firebase Storage с обработкой ошибок
     try {
@@ -73,6 +84,7 @@ const fieldLabels = {
       this.firebaseStorage = null;
     }
     
+    
     // Инициализация PhotoDownloader (оставляем для обратной совместимости)
     try {
       this.photoDownloader = new PhotoDownloader(botToken);
@@ -80,7 +92,28 @@ const fieldLabels = {
       console.error('❌ Не удалось инициализировать PhotoDownloader:', error.message);
       this.photoDownloader = null;
     }
+    (async () => {
+  if (firebaseDatabase) {
+    console.log('🔥 Проверяю Firebase Database:');
+    console.log('  - initialized:', firebaseDatabase.initialized);
+    console.log('  - db:', firebaseDatabase.db ? '✅ Есть' : '❌ Нет');
+    console.log('  - available methods:', Object.keys(firebaseDatabase).filter(key => typeof firebaseDatabase[key] === 'function'));
     
+    if (firebaseDatabase.db) {
+      // Тестовый запрос
+      try {
+        const testRef = firebaseDatabase.db.ref('test_connection');
+        await testRef.set({
+          timestamp: Date.now(),
+          message: 'Test connection from bot'
+        });
+        console.log('✅ Тестовый запрос к Firebase успешен');
+      } catch (error) {
+        console.error('❌ Тестовый запрос к Firebase не удался:', error.message);
+      }
+    }
+  }
+})();
     // Привязываем методы
     this.setupHandlers = this.setupHandlers.bind(this);
     this.isUserAdmin = this.isUserAdmin.bind(this);
@@ -91,10 +124,47 @@ const fieldLabels = {
     console.log('✅ Bot initialized');
   }
 
-  // ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
-  getCityKey(cityName) {
+ async checkFirebaseStatus() {
+    console.log('🔍 Проверяю статус Firebase...');
+    
+    try {
+      // Проверяем, инициализированы ли менеджеры с Firebase
+      const managers = [cityManager, placeManager, categoryManager, adsManager];
+      let firebaseReady = true;
+      
+      for (const manager of managers) {
+        if (manager.firebaseDB && !manager.firebaseDB.initialized) {
+          console.error(`❌ Менеджер ${manager.constructor.name} не подключен к Firebase`);
+          firebaseReady = false;
+        }
+      }
+      
+      if (firebaseReady) {
+        console.log('✅ Все менеджеры подключены к Firebase');
+        
+        // 🔄 Запускаем фоновую синхронизацию при старте
+        setTimeout(async () => {
+          try {
+            console.log('🔄 Запускаю фоновую синхронизацию данных...');
+            await this.firebaseDB.forceSync();
+            console.log('✅ Синхронизация завершена');
+          } catch (syncError) {
+            console.error('❌ Ошибка синхронизации:', syncError.message);
+          }
+        }, 3000);
+      }
+      
+    } catch (error) {
+      console.error('❌ Ошибка проверки статуса Firebase:', error);
+    }
+  }
+
+    // 🔥 ТРЕТЬЕ ИЗМЕНЕНИЕ: Обновляем методы работы с городами для Firebase-first
+  async getCityKey(cityName) {
+    console.log(`🔑 [getCityKey] Начинаю обработку: "${cityName}"`);
+    
     if (!cityName || typeof cityName !== 'string') {
-      console.warn('⚠️ Неверное название города:', cityName);
+      console.warn('⚠️ [getCityKey] Неверное название города:', cityName);
       return 'unknown';
     }
     
@@ -105,7 +175,12 @@ const fieldLabels = {
       return 'unknown';
     }
     
-    // Простая транслитерация для русских букв
+    // Используем метод генерации ID из Firebase
+    if (this.firebaseDB && this.firebaseDB.generateCityId) {
+      return this.firebaseDB.generateCityId(cleaned);
+    }
+    
+    // Fallback на старую логику
     const translitMap = {
       'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
       'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
@@ -116,7 +191,7 @@ const fieldLabels = {
       'э': 'e', 'ю': 'yu', 'я': 'ya',
       ' ': '_', '-': '_', ',': '', '.': '', '!': '', '?': '',
       '(': '', ')': '', '[': '', ']': '', '{': '', '}': '',
-      ':': '_', ';': '_'  // Добавлена обработка двоеточий!
+      ':': '_', ';': '_'
     };
     
     let key = '';
@@ -131,93 +206,214 @@ const fieldLabels = {
       }
     }
     
-    // Убираем множественные подчеркивания
-    key = key.replace(/_+/g, '_');
+    key = key.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
     
-    // Убираем подчеркивания в начале и конце
-    key = key.replace(/^_+|_+$/g, '');
-    
-    // Если пусто - создаем простой ключ
     if (key.length === 0) {
       key = 'city_' + cleaned.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 10);
     }
     
-    // Ограничиваем длину
     const result = key.substring(0, 30);
     console.log(`🔍 [DEBUG getCityKey] Результат: "${result}"`);
     
     return result;
   }
 
-  // Получает название города по ключу
-  async getCityNameFromKey(cityKey) {
-    try {
-      if (!cityKey || cityKey.trim() === '') {
-        console.warn('⚠️ Получен пустой ключ города');
-        return '';
+async syncLocalDataToFirebase() {
+  try {
+    console.log('🔄 Начинаю синхронизацию локальных данных с Firebase...');
+    
+    if (!this.firebaseDB || !this.firebaseDB.initialized) {
+      console.log('⚠️ Firebase недоступна, пропускаю синхронизацию');
+      return;
+    }
+    
+    // Синхронизация городов
+    console.log('🏙️ Синхронизирую города...');
+    const localCities = await cityManager.getAllCities();
+    for (const city of localCities) {
+      await this.firebaseDB.syncCity(city);
+    }
+    
+    // Синхронизация категорий
+    console.log('📁 Синхронизирую категории...');
+    const categories = await categoryManager.getAllCategories();
+    for (const category of categories) {
+      await this.firebaseDB.syncCategory(category);
+    }
+    
+    // Синхронизация мест
+    console.log('📍 Синхронизирую места...');
+    for (const city of localCities) {
+      const places = await placeManager.getPlacesByCity(city);
+      for (const place of places) {
+        await this.firebaseDB.syncPlace(city, place);
       }
-      
-      console.log(`🔍 Ищу город по ключу: "${cityKey}"`);
-      
-      const cities = await cityManager.getAllCities();
-      console.log('🏙️ Все города:', cities);
-      
-      // Сначала ищем точное совпадение по ключу
-      for (const city of cities) {
-        const currentKey = this.getCityKey(city);
-        if (currentKey === cityKey) {
-          console.log(`✅ Найден город по ключу "${cityKey}": "${city}"`);
-          return city;
-        }
-      }
-      
-      // Если не нашли, пробуем найти по частичному совпадению
-      for (const city of cities) {
-        const currentKey = this.getCityKey(city);
-        if (currentKey.includes(cityKey) || cityKey.includes(currentKey)) {
-          console.log(`✅ Найден город по частичному совпадению ключа "${cityKey}": "${city}"`);
-          return city;
-        }
-      }
-      
-      // Если все еще не нашли, ищем по названию города (без учета регистра)
-      const normalizedKey = cityKey.toLowerCase().replace(/_/g, ' ');
-      for (const city of cities) {
-        if (city.toLowerCase().includes(normalizedKey) || normalizedKey.includes(city.toLowerCase())) {
-          console.log(`✅ Найден город по названию "${cityKey}": "${city}"`);
-          return city;
-        }
-      }
-      
-      console.warn(`⚠️ Город по ключу "${cityKey}" не найден!`);
-      // Возвращаем ключ как есть (может быть, это уже название города)
-      return cityKey.replace(/_/g, ' ');
-      
-    } catch (error) {
-      console.error(`❌ Ошибка при поиске города по ключу "${cityKey}":`, error);
-      return cityKey.replace(/_/g, ' ');
+    }
+    
+    // Синхронизация рекламы
+    console.log('📢 Синхронизирую рекламу...');
+    const ads = await adsManager.getAllAds();
+    for (const ad of ads) {
+      await this.firebaseDB.syncAd(ad);
+    }
+    
+    console.log('✅ Синхронизация завершена!');
+    
+  } catch (error) {
+    console.error('❌ Ошибка синхронизации:', error);
+  }
+}
+
+  // ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
+getCityKey(cityName) {
+  console.log(`🔑 [getCityKey] Начинаю обработку: "${cityName}"`);
+  
+  if (!cityName || typeof cityName !== 'string') {
+    console.warn('⚠️ [getCityKey] Неверное название города:', cityName);
+    return 'unknown';
+  }
+  
+  // Используем Firebase для генерации ключа, если доступно
+  if (this.firebaseDB && this.firebaseDB.generateCityId) {
+    const key = this.firebaseDB.generateCityId(cityName);
+    console.log(`🔑 [getCityKey] Сгенерирован Firebase ключ: "${key}"`);
+    return key;
+  }
+  
+  // Fallback на старую логику
+  console.log(`🔍 [DEBUG getCityKey] Входное значение: "${cityName}"`);
+  
+  const cleaned = cityName.trim();
+  if (cleaned.length === 0) {
+    return 'unknown';
+  }
+  
+  const translitMap = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
+    'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
+    'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n',
+    'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
+    'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
+    'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
+    'э': 'e', 'ю': 'yu', 'я': 'ya',
+    ' ': '_', '-': '_', ',': '', '.': '', '!': '', '?': '',
+    '(': '', ')': '', '[': '', ']': '', '{': '', '}': '',
+    ':': '_', ';': '_'
+  };
+  
+  let key = '';
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i].toLowerCase();
+    if (translitMap[char] !== undefined) {
+      key += translitMap[char];
+    } else if (char.match(/[a-z0-9]/)) {
+      key += char;
+    } else {
+      key += '_';
     }
   }
+  
+  key = key.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  
+  if (key.length === 0) {
+    key = 'city_' + cleaned.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 10);
+  }
+  
+  const result = key.substring(0, 30);
+  console.log(`🔍 [DEBUG getCityKey] Fallback результат: "${result}"`);
+  
+  return result;
+}
+
+  // Получает название города по ключу
+async getCityNameFromKey(cityKey) {
+  try {
+    if (!cityKey || cityKey.trim() === '') {
+      console.warn('⚠️ Получен пустой ключ города');
+      return '';
+    }
+    
+    console.log(`🔍 Ищу город по ключу: "${cityKey}"`);
+    
+    // 🔥 ПРИОРИТЕТ FIREBASE: сначала пробуем получить из Firebase
+    if (this.firebaseDB && this.firebaseDB.initialized) {
+      try {
+        const cityName = await this.firebaseDB.getCityNameByKey(cityKey);
+        if (cityName) {
+          console.log(`✅ [FIREBASE] Найден город: "${cityName}"`);
+          return cityName;
+        }
+      } catch (firebaseError) {
+        console.error('❌ Ошибка Firebase при поиске города:', firebaseError.message);
+      }
+    }
+    
+    // ⚠️ FALLBACK: локальные файлы
+    const cities = await cityManager.getAllCities();
+    console.log('🏙️ Все города из локальных файлов:', cities);
+    
+    for (const city of cities) {
+      const currentKey = this.getCityKey(city);
+      if (currentKey === cityKey) {
+        console.log(`✅ Найден город по ключу "${cityKey}": "${city}"`);
+        return city;
+      }
+    }
+    
+    for (const city of cities) {
+      const currentKey = this.getCityKey(city);
+      if (currentKey.includes(cityKey) || cityKey.includes(currentKey)) {
+        console.log(`✅ Найден город по частичному совпадению ключа "${cityKey}": "${city}"`);
+        return city;
+      }
+    }
+    
+    const normalizedKey = cityKey.toLowerCase().replace(/_/g, ' ');
+    for (const city of cities) {
+      if (city.toLowerCase().includes(normalizedKey) || normalizedKey.includes(city.toLowerCase())) {
+        console.log(`✅ Найден город по названию "${cityKey}": "${city}"`);
+        return city;
+      }
+    }
+    
+    console.warn(`⚠️ Город по ключу "${cityKey}" не найден!`);
+    return cityKey.replace(/_/g, ' ');
+    
+  } catch (error) {
+    console.error(`❌ Ошибка при поиске города по ключу "${cityKey}":`, error);
+    return cityKey.replace(/_/g, ' ');
+  }
+}
 
   // Метод для очистки callback_data в inline_keyboard
   cleanInlineKeyboard(markup) {
-    if (!markup || !markup.inline_keyboard) return;
-    
-    for (const row of markup.inline_keyboard) {
-      for (const button of row) {
-        if (button.callback_data) {
-          // Очищаем callback_data от недопустимых символов
-          button.callback_data = this.cleanCallbackData(button.callback_data);
-          
-          // Убеждаемся, что длина не превышает 64 байта
-          if (button.callback_data.length > 64) {
-            console.warn(`⚠️ Callback_data слишком длинный: ${button.callback_data.length}, укорачиваю`);
-            button.callback_data = button.callback_data.substring(0, 64);
-          }
+  if (!markup || !markup.inline_keyboard) return;
+  
+  for (const row of markup.inline_keyboard) {
+    for (const button of row) {
+      // ✅ НЕ ПРОВЕРЯЕМ URL через isTelegramSafeUrl
+      // Просто проверяем базовые требования
+      if (button.url) {
+        // Проверяем только базовую валидность URL
+        if (!button.url.startsWith('http://') && !button.url.startsWith('https://')) {
+          console.error(`❌ Удаляю URL без HTTP/HTTPS: ${button.url}`);
+          delete button.url;
+        }
+      }
+      
+      if (button.callback_data) {
+        // Очищаем callback_data от недопустимых символов
+        button.callback_data = this.cleanCallbackData(button.callback_data);
+        
+        // Убеждаемся, что длина не превышает 64 байта
+        if (button.callback_data.length > 64) {
+          console.warn(`⚠️ Callback_data слишком длинный: ${button.callback_data.length}, укорачиваю`);
+          button.callback_data = button.callback_data.substring(0, 64);
         }
       }
     }
   }
+}
 
   // Метод для очистки callback_data
   cleanCallbackData(data) {
@@ -442,33 +638,184 @@ isLikelyMobile(phone) {
 }
 
 normalizeSocialUrl(url) {
-    if (!url || typeof url !== 'string') return url;
+    if (!url || typeof url !== 'string') {
+        return url;
+    }
 
     let normalized = url.trim();
 
-    // Добавляем https:// если нет протокола
-    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
-      normalized = 'https://' + normalized;
+    // Удаляем все пробелы
+    normalized = normalized.replace(/\s+/g, '');
+
+    // ✅ ИСПРАВЛЕНИЕ: Сохраняем протокол отдельно
+    let protocol = '';
+    let urlWithoutProtocol = normalized;
+    
+    // Извлекаем протокол
+    if (normalized.startsWith('https://')) {
+        protocol = 'https://';
+        urlWithoutProtocol = normalized.substring(8);
+    } else if (normalized.startsWith('http://')) {
+        protocol = 'http://';
+        urlWithoutProtocol = normalized.substring(7);
+    }
+    
+    // Удаляем лишние слэши из основной части URL (НЕ из протокола)
+    urlWithoutProtocol = urlWithoutProtocol.replace(/\/+/g, '/');
+    
+    // Собираем обратно
+    if (protocol) {
+        normalized = protocol + urlWithoutProtocol;
+    } else {
+        // Если нет протокола, добавляем https://
+        normalized = 'https://' + urlWithoutProtocol;
     }
 
-    // Удаляем слеш в конце
-    normalized = normalized.replace(/\/$/, '');
+    // Удаляем слэш в конце URL
+    if (normalized.endsWith('/') && normalized.length > 8) {
+        normalized = normalized.slice(0, -1);
+    }
+
+    // ✅ Финальная проверка и очистка через URL API
+    try {
+        const urlObj = new URL(normalized);
+        // Пересобираем URL из компонентов
+        normalized = urlObj.protocol + '//' + urlObj.host + urlObj.pathname + urlObj.search + urlObj.hash;
+        
+        // Удаляем конечный слэш если это не корневой путь
+        if (normalized.endsWith('/') && urlObj.pathname !== '/') {
+            normalized = normalized.slice(0, -1);
+        }
+    } catch (error) {
+        console.warn(`⚠️ Неверный формат URL при нормализации: ${url}`, error.message);
+    }
 
     return normalized;
-  }
+}
+
+getValidSocialLinks(place) {
+    try {
+        console.log('🔍 [DEBUG getValidSocialLinks] Исходные данные места:', {
+            name: place.name,
+            social_links: place.social_links,
+            type: typeof place.social_links,
+            isArray: Array.isArray(place.social_links)
+        });
+
+        // 🔴 ИСПРАВЛЕНИЕ: Обработка разных форматов social_links
+        let socialLinks = {};
+
+        // Если social_links - это объект
+        if (place.social_links && typeof place.social_links === 'object') {
+            // Проверяем, массив ли это
+            if (Array.isArray(place.social_links)) {
+                console.warn('⚠️ [DEBUG] social_links является массивом, преобразую в объект');
+                // Преобразуем массив [[key, value], ...] в объект
+                for (const item of place.social_links) {
+                    if (Array.isArray(item) && item.length >= 2) {
+                        const [key, value] = item;
+                        if (key && value) {
+                            socialLinks[key] = value;
+                        }
+                    } else if (item && typeof item === 'object' && item.name && item.url) {
+                        // Формат: {name: "Instagram", url: "https://..."}
+                        socialLinks[item.name] = item.url;
+                    }
+                }
+            } else {
+                // Если это обычный объект
+                socialLinks = { ...place.social_links };
+            }
+        } 
+        // Если это строка JSON
+        else if (typeof place.social_links === 'string') {
+            try {
+                const parsed = JSON.parse(place.social_links);
+                if (parsed && typeof parsed === 'object') {
+                    socialLinks = { ...parsed };
+                }
+            } catch (error) {
+                console.warn('⚠️ Не удалось распарсить social_links как JSON');
+            }
+        }
+
+        // 🔴 ИСПРАВЛЕНИЕ: Очищаем и нормализуем каждый URL
+        const cleanSocialLinks = {};
+        
+        for (const [name, url] of Object.entries(socialLinks)) {
+            try {
+                if (!url || typeof url !== 'string') {
+                    console.warn(`⚠️ Пропускаем ${name}: URL не строка или пустой`);
+                    continue;
+                }
+                
+                const normalizedUrl = this.normalizeSocialUrl(url);
+                
+                if (normalizedUrl && normalizedUrl.trim() !== '') {
+                    cleanSocialLinks[name] = normalizedUrl;
+                    console.log(`✅ Нормализован URL: ${name} -> ${normalizedUrl}`);
+                } else {
+                    console.warn(`❌ Невалидный URL для ${name}: ${url}`);
+                }
+            } catch (error) {
+                console.error(`❌ Ошибка обработки URL для ${name}:`, error.message);
+            }
+        }
+
+        console.log('🔍 [DEBUG getValidSocialLinks] Результат:', cleanSocialLinks);
+        return cleanSocialLinks;
+
+    } catch (error) {
+        console.error('❌ Ошибка в getValidSocialLinks:', error);
+        return {};
+    }
+}
 
   // Метод для валидации URL соцсети
-  isValidSocialUrl(url) {
-    if (!url || typeof url !== 'string') return false;
+isValidSocialUrl(url) {
+  if (!url || typeof url !== 'string') {
+    console.warn(`❌ [isValidSocialUrl] Пустой URL или не строка:`, url);
+    return false;
+  }
 
-    // Проверяем, что это валидный URL
-    try {
-      const urlObj = new URL(url);
-      return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
-    } catch (e) {
+  try {
+    // Очищаем URL перед валидацией
+    const cleanedUrl = url.trim();
+    
+    // Проверяем минимальную длину
+    if (cleanedUrl.length < 10) {
+      console.warn(`❌ [isValidSocialUrl] URL слишком короткий: ${cleanedUrl}`);
       return false;
     }
+    
+    // Проверяем базовую структуру
+    if (!cleanedUrl.includes('.')) {
+      console.warn(`❌ [isValidSocialUrl] URL не содержит точку: ${cleanedUrl}`);
+      return false;
+    }
+    
+    // Проверяем протокол
+    if (!cleanedUrl.startsWith('http://') && !cleanedUrl.startsWith('https://')) {
+      console.warn(`❌ [isValidSocialUrl] URL не начинается с http/https: ${cleanedUrl}`);
+      return false;
+    }
+    
+    // Пытаемся создать объект URL
+    const urlObj = new URL(cleanedUrl);
+    
+    // Проверяем наличие hostname
+    if (!urlObj.hostname || urlObj.hostname.length < 3) {
+      console.warn(`❌ [isValidSocialUrl] Неверный hostname: ${urlObj.hostname}`);
+      return false;
+    }
+    
+    return true;
+    
+  } catch (error) {
+    console.warn(`❌ [isValidSocialUrl] Неверный формат URL "${url}":`, error.message);
+    return false;
   }
+}
 
   // Метод для получения иконки соцсети
   getSocialIcon(url) {
@@ -694,6 +1041,52 @@ async handleEditSocialItem(chatId, cityKey, placeId, socialName) {
   }
 }
 
+async testUberDeeplink(chatId, place) {
+  if (!place.latitude || !place.longitude) {
+    await this.sendAdminMessage(chatId, '❌ Нет координат для теста Uber');
+    return;
+  }
+  
+  const deeplink = this.generateUberLink(place);
+  const webLink = this.generateUberWebLink(place);
+  
+  let message = `🚗 *Тест Uber deeplink*\n\n`;
+  message += `📍 *Место:* ${place.name}\n`;
+  message += `🌍 *Координаты:* ${place.latitude}, ${place.longitude}\n`;
+  message += `📌 *Адрес:* ${place.address || 'нет'}\n`;
+  message += `🏷️ *Google Place ID:* ${place.google_place_id || 'нет'}\n\n`;
+  
+  message += `*Deeplink (для приложения):*\n`;
+  message += `\`${deeplink}\`\n\n`;
+  
+  message += `*Веб-ссылка (для браузера):*\n`;
+  message += `\`${webLink}\`\n\n`;
+  
+  message += `📱 *На мобильном устройстве* deeplink откроет приложение Uber.\n`;
+  message += `💻 *На десктопе* можно использовать веб-версию.`;
+  
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '🚗 Открыть в приложении', url: deeplink }
+      ],
+      [
+        { text: '🌐 Открыть в браузере', url: webLink }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
+
+
+
 // Метод для удаления соцсети
 async handleDeleteSocialItem(chatId, cityKey, placeId, socialName) {
   try {
@@ -877,32 +1270,39 @@ async confirmDeleteSocial(chatId, cityKey, placeId, socialName) {
   }
 
   // Для админ-панели: отправка без отслеживания
-  async sendAdminMessage(chatId, text, options = {}) {
+ async sendAdminMessage(chatId, text, options = {}) {
+  try {
+    console.log(`📤 [sendAdminMessage] Отправляю в ${chatId}: ${text.substring(0, 50)}...`);
+    
+    // Автоматически чистим callback_data в inline_keyboard перед отправкой
+    if (options.reply_markup && options.reply_markup.inline_keyboard) {
+      this.cleanInlineKeyboard(options.reply_markup);
+    }
+    
+    // Валидируем разметку
+    if (options.reply_markup && !this.validateReplyMarkup(options.reply_markup)) {
+      console.warn('⚠️ Некорректный reply_markup после очистки, отправляю без него');
+      delete options.reply_markup;
+    }
+    
+    const result = await this.bot.sendMessage(chatId, text, options);
+    console.log(`✅ [sendAdminMessage] Сообщение отправлено успешно, ID: ${result.message_id}`);
+    return result;
+    
+  } catch (error) {
+    console.error(`❌ [sendAdminMessage] Ошибка при отправке в ${chatId}:`, error.message);
+    console.error('❌ Полная ошибка:', error);
+    
+    // Пробуем отправить без разметки
     try {
-      // Автоматически чистим callback_data в inline_keyboard перед отправкой
-      if (options.reply_markup && options.reply_markup.inline_keyboard) {
-        this.cleanInlineKeyboard(options.reply_markup);
-      }
-      
-      // Валидируем разметку
-      if (options.reply_markup && !this.validateReplyMarkup(options.reply_markup)) {
-        console.warn('⚠️ Некорректный reply_markup после очистки, отправляю без него');
-        delete options.reply_markup;
-      }
-      
-      return await this.bot.sendMessage(chatId, text, options);
-    } catch (error) {
-      console.error('❌ Ошибка при отправке сообщения:', error.message);
-      
-      // Пробуем отправить без разметки
-      try {
-        return await this.bot.sendMessage(chatId, text);
-      } catch (secondError) {
-        console.error('❌ Ошибка при повторной отправке:', secondError.message);
-        return null;
-      }
+      console.log(`🔄 [sendAdminMessage] Пробую отправить без разметки...`);
+      return await this.bot.sendMessage(chatId, text);
+    } catch (secondError) {
+      console.error('❌ [sendAdminMessage] Ошибка при повторной отправке:', secondError.message);
+      return null;
     }
   }
+}
 
   // Отправка фото с отслеживанием (только для обычных пользователей)
   async sendPhotoAndTrack(chatId, photo, options = {}) {
@@ -990,6 +1390,70 @@ async confirmDeleteSocial(chatId, cityKey, placeId, socialName) {
   isUserAdmin(userId) {
     return this.adminIds.includes(userId);
   }
+
+       isMainMenuCommand(text) {
+        const mainMenuCommands = [
+            '🏙️ Выбрать город',
+            '📰 Новости',
+            '📱 Наши медиа',
+            '⚙️ Администрирование',
+            '🔙 Назад',
+            '🏠 Главное меню'
+        ];
+        return mainMenuCommands.includes(text);
+    }
+    
+    async handleMainMenuCommand(chatId, command, isAdmin) {
+        console.log(`🔧 [handleMainMenuCommand] Обрабатываю: ${command} для ${chatId}, админ: ${isAdmin}`);
+        
+        switch(command) {
+            case '🏙️ Выбрать город':
+                console.log(`🔧 Переход к выбору города...`);
+                this.userStates.delete(chatId);
+                this.adminSessions.delete(chatId);
+                await this.showCitySelection(chatId, isAdmin);
+                break;
+                
+            case '📰 Новости':
+                console.log(`🔧 Показываю новости...`);
+                this.userStates.delete(chatId);
+                this.adminSessions.delete(chatId);
+                await this.showNews(chatId, isAdmin);
+                break;
+                
+            case '📱 Наши медиа':
+                console.log(`🔧 Показываю медиа...`);
+                this.userStates.delete(chatId);
+                this.adminSessions.delete(chatId);
+                await this.showMediaLinks(chatId, isAdmin);
+                break;
+                
+            case '⚙️ Администрирование':
+                console.log(`🔧 Показываю админ-панель...`);
+                if (isAdmin) {
+                    try {
+                        this.adminSessions.set(chatId, true);
+                        await this.showAdminPanel(chatId);
+                    } catch (error) {
+                        console.error('❌ Ошибка при открытии админ-панели:', error);
+                        await this.sendAdminMessage(chatId, '❌ Ошибка при загрузке админ-панели: ' + error.message);
+                    }
+                } else {
+                    await this.sendAdminMessage(chatId, '⛔ У вас нет доступа к этой функции.');
+                }
+                break;
+                
+            case '🔙 Назад':
+            case '🏠 Главное меню':
+                console.log(`🔧 Возвращаюсь в главное меню...`);
+                this.userStates.delete(chatId);
+                this.adminSessions.delete(chatId);
+                this.userPhotos.delete(chatId);
+                this.lastBotMessages.delete(chatId);
+                await this.showMainMenu(chatId, 'Главное меню:', isAdmin);
+                break;
+        }
+    }
 
 // Метод для обработки редактирования поля соцсети
 async handleEditingSocialField(chatId, msg, state) {
@@ -1131,6 +1595,421 @@ async handleEditingSocialItem(chatId, msg, state) {
   }
 }
 
+
+async migrateAllDataToFirebase(chatId) {
+  try {
+    await this.sendAdminMessage(
+      chatId,
+      '🚀 *Начинаю полную миграцию данных в Firebase...*\n\n' +
+      'Это может занять несколько минут. Пожалуйста, подождите.',
+      { parse_mode: 'Markdown' }
+    );
+    
+    let report = '';
+    let totalMigrated = 0;
+    
+    // 1. Миграция городов
+    const cities = await cityManager.getAllCities();
+    report += `🏙️ *Города:* ${cities.length}\n`;
+    
+    for (const city of cities) {
+      try {
+        await this.firebaseDB.syncCity(city);
+        totalMigrated++;
+        report += `  ✅ ${city}\n`;
+      } catch (error) {
+        report += `  ❌ ${city}: ${error.message}\n`;
+      }
+    }
+    
+    // 2. Миграция категорий
+    const categories = await categoryManager.getAllCategories();
+    report += `\n📁 *Категории:* ${categories.length}\n`;
+    
+    for (const category of categories) {
+      try {
+        await this.firebaseDB.syncCategory(category);
+        totalMigrated++;
+        report += `  ✅ ${category.emoji} ${category.name}\n`;
+      } catch (error) {
+        report += `  ❌ ${category.name}: ${error.message}\n`;
+      }
+    }
+    
+    // 3. Миграция мест
+    let placesMigrated = 0;
+    report += `\n📍 *Места:*\n`;
+    
+    for (const city of cities) {
+      const places = await placeManager.getPlacesByCity(city);
+      report += `  🏙️ ${city}: ${places.length} мест\n`;
+      
+      for (const place of places) {
+        try {
+          await this.firebaseDB.syncPlace(city, place);
+          placesMigrated++;
+          totalMigrated++;
+        } catch (error) {
+          report += `    ❌ ${place.name}: ${error.message}\n`;
+        }
+      }
+    }
+    
+    report += `    ✅ Успешно мигрировано: ${placesMigrated} мест\n`;
+    
+    // 4. Миграция рекламы
+    const ads = await adsManager.getAllAds();
+    report += `\n📢 *Рекламные объявления:* ${ads.length}\n`;
+    
+    for (const ad of ads) {
+      try {
+        await this.firebaseDB.syncAd(ad);
+        totalMigrated++;
+        report += `  ✅ ${ad.text.substring(0, 30)}...\n`;
+      } catch (error) {
+        report += `  ❌ Ошибка: ${error.message}\n`;
+      }
+    }
+    
+    const finalMessage = `✅ *Миграция завершена!*\n\n` +
+      `📊 *Итоги:*\n` +
+      `• Всего объектов: ${totalMigrated}\n` +
+      `• Городов: ${cities.length}\n` +
+      `• Категорий: ${categories.length}\n` +
+      `• Мест: ${placesMigrated}\n` +
+      `• Рекламы: ${ads.length}\n\n` +
+      `*Детальный отчет:*\n${report}`;
+    
+    await this.sendAdminMessage(chatId, finalMessage, { parse_mode: 'Markdown' });
+    
+  } catch (error) {
+    console.error('❌ Ошибка миграции:', error);
+    await this.sendAdminMessage(
+      chatId,
+      `❌ Критическая ошибка миграции: ${error.message}`
+    );
+  }
+}
+// ============ ИСПРАВЛЕННЫЙ МЕТОД ДЛЯ UBER ============
+
+// Генерация ссылки на Uber (только HTTP/HTTPS для Telegram)
+generateUberLink(place) {
+  if (!place.latitude || !place.longitude) {
+    console.log('🚗 Нет координат для Uber');
+    return null;
+  }
+  
+  console.log('🚗 [DEBUG Uber] Генерирую ссылку с данными:', {
+    name: place.name,
+    address: place.address,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    google_place_id: place.google_place_id
+  });
+  
+  const encodedName = encodeURIComponent(place.name || 'Место назначения');
+  
+  // ✅ ИСПРАВЛЕНИЕ: Используем HTTPS Universal Link вместо deeplink
+  // Этот формат работает везде и автоматически откроет приложение если оно установлено
+  
+  // Если есть Google Place ID - используем его
+  if (place.google_place_id) {
+    const uberLink = `https://m.uber.com/ul/?action=setPickup` +
+                    `&pickup=my_location` +
+                    `&dropoff[latitude]=${place.latitude}` +
+                    `&dropoff[longitude]=${place.longitude}` +
+                    `&dropoff[nickname]=${encodedName}` +
+                    `&dropoff[place_id]=${encodeURIComponent(place.google_place_id)}`;
+    
+    console.log(`🚗 Universal Link с Place ID: ${uberLink}`);
+    return uberLink;
+  }
+  
+  // Без Place ID - только координаты
+  const uberLink = `https://m.uber.com/ul/?action=setPickup` +
+                  `&pickup=my_location` +
+                  `&dropoff[latitude]=${place.latitude}` +
+                  `&dropoff[longitude]=${place.longitude}` +
+                  `&dropoff[nickname]=${encodedName}`;
+  
+  console.log(`🚗 Universal Link без Place ID: ${uberLink}`);
+  return uberLink;
+}
+
+// Метод для получения ссылки Uber с приоритетом старых данных
+getUberLinkForPlace(place) {
+  try {
+    // Генерируем deeplink - он будет работать на мобильных устройствах
+    const link = this.generateUberLink(place);
+    
+    if (!link) {
+      console.log('🚗 Не удалось создать ссылку Uber');
+      return null;
+    }
+    
+    return link;
+    
+  } catch (error) {
+    console.error('🚗 Ошибка при создании ссылки Uber:', error);
+    return null;
+  }
+}
+// Альтернативная простая версия (если сложная не работает)
+generateUberSimpleLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Простая ссылка с координатами и названием
+  const encodedName = encodeURIComponent(place.name || 'Место');
+  return `https://m.uber.com/ul/?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodedName}`;
+}
+
+// Умная ссылка, которая пробует разные форматы
+generateSmartUberLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Возвращаем deeplink - Telegram на мобильных устройствах откроет приложение
+  // На десктопе можно добавить кнопку с веб-версией отдельно
+  return this.generateUberLink(place);
+}
+
+// Прямой deeplink для приложения Uber (может открыть приложение)
+generateUberDeepLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Deeplink для прямого открытия приложения
+  const encodedName = encodeURIComponent(place.name || 'Место');
+  return `uber://?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodedName}`;
+}
+
+// Улучшенный метод для Uber с выбором формата
+generateUberLinkImproved(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Проверяем, есть ли все необходимые данные для старого формата
+  if (place.name && place.address && place.google_place_id) {
+    console.log(`🚗 Используем старый формат с полными данными`);
+    return this.generateUberLink(place);
+  }
+  
+  // Если нет полных данных, используем простой формат
+  console.log(`🚗 Используем простой формат с координатами`);
+  return this.generateUberSimpleLink(place);
+}
+
+// Метод для тестирования Uber ссылок
+async testUberLink(chatId, place) {
+  if (!place.latitude || !place.longitude) {
+    await this.sendAdminMessage(chatId, '❌ Нет координат для теста Uber');
+    return;
+  }
+  
+  const oldLink = this.generateUberLink(place);
+  const simpleLink = this.generateUberSimpleLink(place);
+  const deeplink = this.generateUberDeepLink(place);
+  
+  let message = `🚗 *Тест ссылок Uber*\n\n`;
+  message += `📍 *Место:* ${place.name}\n`;
+  message += `🌍 *Координаты:* ${place.latitude}, ${place.longitude}\n`;
+  message += `📌 *Адрес:* ${place.address || 'нет'}\n`;
+  message += `🏷️ *Google Place ID:* ${place.google_place_id || 'нет'}\n\n`;
+  
+  message += `*Ссылки:*\n`;
+  message += `1. *Старый формат:*\n\`${oldLink}\`\n\n`;
+  message += `2. *Простой формат:*\n\`${simpleLink}\`\n\n`;
+  message += `3. *Deeplink:*\n\`${deeplink}\``;
+  
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '🚗 Старый формат', url: oldLink },
+        { text: '🚗 Простой формат', url: simpleLink }
+      ],
+      [
+        { text: '📱 Deeplink', url: deeplink }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
+// Метод для проверки, что URL безопасен для Telegram
+isTelegramSafeUrl(url) {
+  if (!url || typeof url !== 'string') {
+    console.warn('⚠️ Пустой URL при проверке безопасности');
+    return false;
+  }
+  
+  const trimmed = url.trim();
+  
+  // Telegram поддерживает только HTTP и HTTPS
+  const allowedProtocols = ['http://', 'https://'];
+  
+  const hasAllowedProtocol = allowedProtocols.some(protocol => 
+    trimmed.toLowerCase().startsWith(protocol)
+  );
+  
+  if (!hasAllowedProtocol) {
+    console.error(`❌ Telegram не поддерживает протокол в URL: ${trimmed.substring(0, 50)}...`);
+    return false;
+  }
+  
+  return true;
+}
+// Дополнительная очистка inline-кнопок
+
+// Альтернативная версия с более простыми параметрами
+generateUberSimpleLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Самый простой и надежный вариант
+  const simpleLink = `https://m.uber.com/ul/?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodeURIComponent(place.name || 'Место')}`;
+  console.log(`🚗 Простая ссылка Uber: ${simpleLink}`);
+  
+  return simpleLink;
+}
+
+// Прямой deeplink для приложения Uber
+generateUberDeepLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  // Deeplink для прямого открытия приложения Uber
+  const deeplink = `uber://?action=setDropoff&dropoff[latitude]=${place.latitude}&dropoff[longitude]=${place.longitude}&dropoff[nickname]=${encodeURIComponent(place.name || 'Место')}`;
+  console.log(`📱 Deeplink Uber: ${deeplink}`);
+  
+  return deeplink;
+}
+
+// Умная ссылка: пробует deeplink, потом web
+generateSmartUberLink(place) {
+  // На мобильных устройствах Telegram пробует сначала deeplink
+  // Если приложение не установлено, откроется web-версия
+  
+  const deeplink = this.generateUberDeepLink(place);
+  const webLink = this.generateUberSimpleLink(place);
+  
+  // Telegram поддерживает специальный формат для нескольких URL
+  // Но в простом случае используем универсальную ссылку
+  console.log(`🔗 Умная ссылка: предпочитаем веб-версию для кросс-платформенности`);
+  return webLink;
+}
+
+generateUberWebLink(place) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  const encodedName = encodeURIComponent(place.name || 'Место');
+  
+  // Универсальная веб-ссылка Uber
+  const webLink = `https://m.uber.com/ul/?action=setPickup` +
+                 `&pickup=my_location` +
+                 `&dropoff[latitude]=${place.latitude}` +
+                 `&dropoff[longitude]=${place.longitude}` +
+                 `&dropoff[nickname]=${encodedName}`;
+  
+  return webLink;
+}
+
+// Расширенная версия с дополнительными возможностями (без deeplink)
+async showUberOptions(chatId, place, cityKey) {
+  if (!place.latitude || !place.longitude) {
+    return null;
+  }
+  
+  const message = `🚗 *Вызов такси Uber*\n\n` +
+    `📍 *Куда:* ${place.name}\n` +
+    `📌 *Адрес:* ${place.address || 'адрес не указан'}\n\n` +
+    `*Выберите вариант:*`;
+  
+  const inlineKeyboard = {
+    inline_keyboard: []
+  };
+  
+  // Только веб-версия (без deeplink)
+  const uberLink = this.getUberLinkForPlace(place);
+  if (uberLink) {
+    inlineKeyboard.inline_keyboard.push([
+      { 
+        text: '🚗 Вызвать Uber', 
+        url: uberLink 
+      }
+    ]);
+  }
+  
+  // Маршрут в Google Maps
+  inlineKeyboard.inline_keyboard.push([
+    { 
+      text: '🗺️ Построить маршрут', 
+      url: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=driving` 
+    }
+  ]);
+  
+  // Копировать координаты
+  inlineKeyboard.inline_keyboard.push([
+    { 
+      text: '📋 Скопировать координаты', 
+      callback_data: `copy_coords:${place.latitude}:${place.longitude}` 
+    }
+  ]);
+  
+  // Назад к месту
+  inlineKeyboard.inline_keyboard.push([
+    { 
+      text: '🔙 Назад к месту', 
+      callback_data: `show_place:${cityKey}:${place.id}` 
+    }
+  ]);
+  
+  await this.sendAndTrack(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
+
+// Обработчик для копирования координат
+async handleCopyCoords(chatId, latitude, longitude) {
+  const coords = `${latitude},${longitude}`;
+  
+  await this.sendAndTrack(
+    chatId,
+    `📍 *Координаты для навигации:*\n\n` +
+    `\`${coords}\`\n\n` +
+    `*Инструкция:*\n` +
+    `1. Нажмите на координаты выше для выделения\n` +
+    `2. Нажмите "Копировать"\n` +
+    `3. Вставьте в любое навигационное приложение`,
+    { parse_mode: 'Markdown' }
+  );
+}
+escapeHtml(text) {
+  if (!text || typeof text !== 'string') return '';
+  
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/`/g, '&#96;');
+}
 async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
   try {
     const cityName = await this.getCityNameFromKey(cityKey);
@@ -1141,19 +2020,10 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       userId = userState?.userId || chatId;
     }
 
-    console.log(`🔍 [DEBUG showPlaceDetails] userId: ${userId}, chatId: ${chatId}`);
-
     if (!place) {
       await this.sendAndTrack(chatId, '❌ Место не найдено.');
       return;
     }
-
-    console.log('🔍 [DEBUG showPlaceDetails] Данные места:', {
-      name: place.name,
-      socialLinks: place.social_links || 'нет',
-      socialLinksType: typeof place.social_links,
-      socialLinksKeys: place.social_links ? Object.keys(place.social_links) : []
-    });
 
     const category = await categoryManager.getCategoryById(place.category_id);
 
@@ -1162,53 +2032,62 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
 
     if (place.photos && Array.isArray(place.photos) && place.photos.length > 0) {
       const photo = place.photos[0];
-
       if (photo && typeof photo === 'object' && photo.url) {
         photoUrl = photo.url;
-      } else if (photo && typeof photo === 'object' && photo.fileName) {
-        const bucketName = 'help-tasc-progect.firebasestorage.app';
-        photoUrl = `https://storage.googleapis.com/${bucketName}/photos/${photo.fileName}`;
       } else if (typeof photo === 'string' && photo.startsWith('http')) {
         photoUrl = photo;
-      } else if (typeof photo === 'string' && photo.length > 10) {
-        const bucketName = 'help-tasc-progect.firebasestorage.app';
-        photoUrl = `https://storage.googleapis.com/${bucketName}/photos/${photo}`;
-      }
-
-      if (photoUrl) {
-        console.log(`🖼️ Найдена ссылка на фото для превью: ${photoUrl.substring(0, 50)}...`);
       }
     }
 
-    // ✅ ФОРМИРУЕМ СООБЩЕНИЕ
+    // ✅ ФОРМИРУЕМ СООБЩЕНИЕ С БЕЗОПАСНЫМ HTML
     let message = '';
 
-    // Добавляем скрытую ссылку на фото В САМОЕ НАЧАЛО
+    // Добавляем скрытую ссылку на фото В САМОЕ НАЧАЛО (HTML формат)
     if (photoUrl) {
-      message += `[​](${photoUrl})`;  // Невидимая ссылка для превью
+      // 🔥 ИСПРАВЛЕНИЕ: используем HTML тег вместо Markdown
+      message += `<a href="${photoUrl}">​</a>`;
     }
 
-    message += `🏛️ *${place.name}*\n`;
-    message += `📁 ${category.emoji} ${category.name}\n\n`;
-    message += `📍 *Адрес:* ${place.address || 'не указан'}\n`;
-    message += `⏰ *Время работы:* ${place.working_hours || 'не указано'}\n`;
+    // 🔥 ИСПРАВЛЕНИЕ: Безопасный HTML текст
+    const safeName = this.escapeHtml(place.name);
+    const safeCategoryName = this.escapeHtml(category.name);
+    const safeAddress = place.address ? this.escapeHtml(place.address) : 'не указан';
+    const safeHours = place.working_hours ? this.escapeHtml(place.working_hours) : 'не указано';
+    const safePrice = place.average_price ? this.escapeHtml(place.average_price) : null;
+    const safeDescription = place.description ? this.escapeHtml(place.description) : 'Нет описания';
+    const safePhone = place.phone ? this.escapeHtml(place.phone) : null;
 
-    if (place.average_price) {
-      message += `💰 *Средний чек:* ${place.average_price}\n`;
+    message += `🏛️ <b>${safeName}</b>\n`;
+    message += `📁 ${category.emoji} ${safeCategoryName}\n\n`;
+    message += `📍 <b>Адрес:</b> ${safeAddress}\n`;
+    message += `⏰ <b>Время работы:</b> ${safeHours}\n`;
+
+    if (safePrice) {
+      message += `💰 <b>Средний чек:</b> ${safePrice}\n`;
     }
 
-    message += `\n📝 *Описание:*\n${place.description || 'Нет описания'}\n`;
+    message += `\n📝 <b>Описание:</b>\n${safeDescription}\n`;
 
-    if (place.phone) {
-      message += `\n📞 *Телефон:* ${place.phone}\n`;
+    if (safePhone) {
+      message += `\n📞 <b>Телефон:</b> ${safePhone}\n`;
     }
 
-    // ✅ ОТОБРАЖЕНИЕ СОЦСЕТЕЙ В ТЕКСТЕ
-    if (place.social_links && Object.keys(place.social_links).length > 0) {
-      message += `\n📱 *Социальные сети:*\n`;
-      Object.entries(place.social_links).forEach(([name, url]) => {
+    // 🔴 УЛУЧШЕННЫЙ МЕТОД ПОЛУЧЕНИЯ СОЦСЕТЕЙ
+    const socialLinks = this.getValidSocialLinks(place);
+    
+    console.log('🔍 [DEBUG showPlaceDetails] Соцсети после обработки:', {
+      hasSocialLinks: !!socialLinks,
+      count: Object.keys(socialLinks || {}).length,
+      data: socialLinks
+    });
+    
+    // ✅ ОТОБРАЖЕНИЕ СОЦСЕТЕЙ В ТЕКСТЕ (без разметки, просто текст)
+    if (socialLinks && Object.keys(socialLinks).length > 0) {
+      message += `\n📱 <b>Социальные сети:</b>\n`;
+      Object.entries(socialLinks).forEach(([name, url]) => {
         const icon = this.getSocialIcon(url);
-        message += `• ${icon} ${name}: ${url}\n`;
+        const safeSocialName = this.escapeHtml(name);
+        message += `• ${icon} ${safeSocialName}: ${url}\n`;
       });
     }
 
@@ -1216,73 +2095,72 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       inline_keyboard: []
     };
 
-    // ✅ ДОБАВЛЯЕМ КНОПКИ СОЦСЕТЕЙ
-    if (place.social_links && Object.keys(place.social_links).length > 0) {
-      console.log(`🔍 Создаю кнопки для соцсетей:`, Object.entries(place.social_links));
+    // ✅ ДОБАВЛЯЕМ КНОПКИ СОЦСЕТЕЙ (ОБЯЗАТЕЛЬНО)
+    if (socialLinks && Object.keys(socialLinks).length > 0) {
+      console.log(`🔍 Создаю кнопки для соцсетей:`, Object.entries(socialLinks));
       
-      const socialEntries = Object.entries(place.social_links);
+      const socialEntries = Object.entries(socialLinks);
       
       // Группируем по 2 кнопки в ряд
       for (let i = 0; i < socialEntries.length; i += 2) {
         const row = socialEntries.slice(i, i + 2).map(([name, url]) => {
           const icon = this.getSocialIcon(url);
           const normalizedUrl = this.normalizeSocialUrl(url);
+          
+          if (!normalizedUrl || normalizedUrl.trim() === '') {
+            console.warn(`⚠️ Пустой URL для ${name}`);
+            return null;
+          }
+          
+          const urlToUse = normalizedUrl.startsWith('http') ? normalizedUrl : `https://${normalizedUrl}`;
+          const safeButtonName = this.escapeHtml(name.substring(0, 15));
+          
           return {
-            text: `${icon} ${name}`,
-            url: normalizedUrl
+            text: `${icon} ${safeButtonName}${name.length > 15 ? '...' : ''}`,
+            url: urlToUse
           };
-        });
-        inlineKeyboard.inline_keyboard.push(row);
+        }).filter(button => button !== null);
+        
+        if (row.length > 0) {
+          inlineKeyboard.inline_keyboard.push(row);
+        }
       }
     }
 
-    // ✅ ДОБАВЛЯЕМ КНОПКУ ЗВОНКА ЕСЛИ ЕСТЬ ТЕЛЕФОН
-
-
     // ✅ КНОПКИ САЙТА И КАРТЫ
     if (place.website) {
-      inlineKeyboard.inline_keyboard.push([
-        { text: '🌐 Открыть сайт', url: place.website }
-      ]);
+      const normalizedWebsite = this.normalizeSocialUrl(place.website);
+      if (normalizedWebsite && normalizedWebsite.trim() !== '') {
+        const urlToUse = normalizedWebsite.startsWith('http') ? normalizedWebsite : `https://${normalizedWebsite}`;
+        inlineKeyboard.inline_keyboard.push([
+          { text: '🌐 Открыть сайт', url: urlToUse }
+        ]);
+      }
     }
 
     if (place.map_url) {
-      inlineKeyboard.inline_keyboard.push([
-        { text: '📍 Показать на карте', url: place.map_url }
-      ]);
+      const normalizedMapUrl = this.normalizeSocialUrl(place.map_url);
+      if (normalizedMapUrl && normalizedMapUrl.trim() !== '') {
+        const urlToUse = normalizedMapUrl.startsWith('http') ? normalizedMapUrl : `https://${normalizedMapUrl}`;
+        inlineKeyboard.inline_keyboard.push([
+          { text: '📍 Показать на карте', url: urlToUse }
+        ]);
+      }
     }
 
-// ✅ КНОПКИ ТАКСИ (если есть координаты)
-if (place.latitude && place.longitude) {
-  const taxiRow = [];
-  
-  // Uber
-  const uberDropoff = {
-    addressLine1: place.name,
-    addressLine2: place.address || "",
-    id: place.google_place_id || "",
-    source: "SEARCH",
-    latitude: place.latitude,
-    longitude: place.longitude,
-    provider: "google_places"
-  };
-  
-  const uberDropoffEncoded = encodeURIComponent(JSON.stringify(uberDropoff));
-  taxiRow.push({
-    text: '🚗 Uber',
-    url: `https://m.uber.com/go/pickup?drop%5B0%5D=${uberDropoffEncoded}`
-  });
-  
-  // Google Maps маршрут
-  taxiRow.push({
-    text: '🗺️ Маршрут',
-    url: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=driving`
-  });
-  
-  if (taxiRow.length > 0) {
-    inlineKeyboard.inline_keyboard.push(taxiRow);
-  }
-}
+    // ✅ КНОПКИ ТАКСИ
+    if (place.latitude && place.longitude) {
+      const uberLink = this.getUberLinkForPlace(place);
+      
+      if (uberLink) {
+        inlineKeyboard.inline_keyboard.push([
+          {
+            text: '🚗 Вызвать Uber',
+            url: uberLink
+          }
+        ]);
+      }
+    }
 
     // ✅ КНОПКА "СКОПИРОВАТЬ НОМЕР"
     if (place.phone) {
@@ -1335,12 +2213,101 @@ if (place.latitude && place.longitude) {
 
     inlineKeyboard.inline_keyboard.push(navigationRow);
 
+    // 🔴 ОБЯЗАТЕЛЬНАЯ ВАЛИДАЦИЯ И ОЧИСТКА КЛАВИАТУРЫ
+    this.cleanInlineKeyboard(inlineKeyboard);
+    
+    console.log('🔍 [DEBUG] Клавиатура перед отправкой:', JSON.stringify(inlineKeyboard, null, 2));
+    
+    if (!this.validateReplyMarkup(inlineKeyboard)) {
+      console.error('❌ Некорректная клавиатура после очистки');
+      // Создаем простую клавиатуру без проблемных кнопок
+      const simpleKeyboard = {
+        inline_keyboard: [
+          [
+            { text: '🔙 К категории', callback_data: `select_category:${cityKey}:${place.category_id}` },
+            { text: '🔙 К городу', callback_data: `select_city:${cityKey}` }
+          ],
+          [
+            { text: '⚠️ Что-то не так?', callback_data: `report_issue:${cityKey}:${placeId}` }
+          ]
+        ]
+      };
+      
+      // 🔥 ИСПРАВЛЕНИЕ: Отправляем простым текстом без разметки
+      const simpleMessage = `🏛️ ${place.name}\n` +
+                           `📁 ${category.emoji} ${category.name}\n\n` +
+                           `📍 Адрес: ${place.address || 'не указан'}\n` +
+                           `⏰ Время работы: ${place.working_hours || 'не указано'}\n` +
+                           (place.average_price ? `💰 Средний чек: ${place.average_price}\n` : '') +
+                           `\n📝 Описание:\n${place.description || 'Нет описания'}`;
+      
+      await this.sendAndTrack(chatId, simpleMessage, {
+        reply_markup: simpleKeyboard,
+        disable_web_page_preview: false
+      });
+      return;
+    }
+
     // 📝 ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МЕСТЕ
-    await this.sendAndTrack(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: inlineKeyboard,
-      disable_web_page_preview: false
-    });
+    // 🔥 ГЛАВНОЕ ИСПРАВЛЕНИЕ: Пробуем разные варианты разметки
+    try {
+      // Вариант 1: HTML разметка
+      await this.sendAndTrack(chatId, message, {
+        parse_mode: 'HTML',
+        reply_markup: inlineKeyboard,
+        disable_web_page_preview: false
+      });
+    } catch (htmlError) {
+      console.error('❌ Ошибка при отправке с HTML:', htmlError.message);
+      
+      try {
+        // Вариант 2: Markdown разметка (для обратной совместимости)
+        // 🔥 Сначала убираем HTML теги из сообщения
+        const plainMessage = message
+          .replace(/<[^>]*>/g, '') // Убираем HTML теги
+          .replace(/&lt;/g, '<')   // Восстанавливаем <
+          .replace(/&gt;/g, '>')   // Восстанавливаем >
+          .replace(/&amp;/g, '&')  // Восстанавливаем &
+          .replace(/&quot;/g, '"') // Восстанавливаем "
+          .replace(/&#39;/g, "'"); // Восстанавливаем '
+        
+        await this.sendAndTrack(chatId, plainMessage, {
+          parse_mode: 'Markdown',
+          reply_markup: inlineKeyboard,
+          disable_web_page_preview: false
+        });
+      } catch (markdownError) {
+        console.error('❌ Ошибка при отправке с Markdown:', markdownError.message);
+        
+        try {
+          // Вариант 3: Без разметки вообще
+          const noFormatMessage = message
+            .replace(/<[^>]*>/g, '')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/\*/g, '')    // Убираем *
+            .replace(/_/g, '')     // Убираем _
+            .replace(/`/g, '')     // Убираем `
+            .replace(/\[/g, '')    // Убираем [
+            .replace(/\]/g, '')    // Убираем ]
+            .replace(/\(/g, '')    // Убираем (
+            .replace(/\)/g, '');   // Убираем )
+          
+          await this.sendAndTrack(chatId, noFormatMessage, {
+            reply_markup: inlineKeyboard,
+            disable_web_page_preview: false
+          });
+        } catch (finalError) {
+          console.error('❌ Ошибка при отправке без разметки:', finalError.message);
+          
+          // Последняя попытка: отправим только название и адрес
+          await this.sendAndTrack(chatId, `🏛️ ${place.name}\n📍 ${place.address || 'Адрес не указан'}`);
+        }
+      }
+    }
 
     // Показываем рекламу после места
     await this.showAdAfterPlace(chatId, userId, cityKey, placeId);
@@ -1351,7 +2318,6 @@ if (place.latitude && place.longitude) {
     await this.sendAndTrack(chatId, '⚠️ Произошла ошибка при загрузке информации о месте.');
   }
 }
-
   async handleCopyPhone(chatId, cityKey, placeId) {
     try {
       const cityName = await this.getCityNameFromKey(cityKey);
@@ -1579,6 +2545,185 @@ if (place.latitude && place.longitude) {
       }
     });
 
+// Команда принудительной синхронизации
+this.bot.onText(/\/forcesync/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) {
+    await this.sendAdminMessage(chatId, '❌ Команда доступна только администраторам');
+    return;
+  }
+  
+  await this.deleteLastMessage(chatId);
+  await this.forceSyncToFirebase(chatId);
+});
+
+// Команда статуса Firebase
+this.bot.onText(/\/firebasestatus/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) {
+    await this.sendAdminMessage(chatId, '❌ Команда доступна только администраторам');
+    return;
+  }
+  
+  await this.deleteLastMessage(chatId);
+  await this.showFirebaseStatus(chatId);
+});
+
+// Команда миграции данных
+this.bot.onText(/\/migratetofirebase/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) {
+    await this.sendAdminMessage(chatId, '❌ Команда доступна только администраторам');
+    return;
+  }
+  
+  await this.deleteLastMessage(chatId);
+  await this.migrateAllDataToFirebase(chatId);
+});
+
+this.bot.onText(/\/testfirebasedb/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) return;
+  
+  try {
+    await this.sendAdminMessage(chatId, '🧪 Тестирую подключение к Firebase Database...');
+    
+    // Прямой тест Firebase
+    if (this.firebaseDB && this.firebaseDB.db) {
+      const testRef = this.firebaseDB.db.ref('test');
+      await testRef.set({
+        test: 'test',
+        timestamp: Date.now()
+      });
+      
+      const snapshot = await testRef.once('value');
+      const data = snapshot.val();
+      
+      await this.sendAdminMessage(
+        chatId,
+        `✅ Firebase Database работает!\n\n` +
+        `Данные теста: ${JSON.stringify(data, null, 2)}`
+      );
+    } else {
+      await this.sendAdminMessage(
+        chatId,
+        '❌ Firebase Database не инициализирована'
+      );
+    }
+  } catch (error) {
+    console.error('❌ Ошибка теста Firebase:', error);
+    await this.sendAdminMessage(
+      chatId,
+      `❌ Ошибка Firebase: ${error.message}\n\n` +
+      `Stack: ${error.stack}`
+    );
+  }
+});
+
+this.bot.onText(/\/testcities/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const isAdmin = this.isUserAdmin(userId);
+  
+  console.log(`🧪 [testcities] Тестирую получение городов`);
+  
+  try {
+    const cities = await cityManager.getAllCities();
+    console.log(`🧪 [testcities] Города получены:`, cities);
+    
+    await this.bot.sendMessage(
+      chatId,
+      `🧪 Тест городов:\n\n` +
+      `Всего городов: ${cities.length}\n` +
+      `Города: ${cities.join(', ') || 'нет'}`
+    );
+    
+  } catch (error) {
+    console.error(`❌ [testcities] Ошибка:`, error);
+    await this.bot.sendMessage(
+      chatId,
+      `❌ Ошибка при получении городов:\n${error.message}`
+    );
+  }
+});
+
+this.bot.onText(/\/checkfirebase/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) {
+    await this.sendAdminMessage(chatId, '❌ Команда доступна только администраторам');
+    return;
+  }
+  
+  let status = '🔍 *Статус Firebase в менеджерах:*\n\n';
+  
+  // Проверяем подключение
+  status += `📁 CategoryManager: ${categoryManager.firebaseDB?.initialized ? '✅ Подключен' : '❌ Не подключен'}\n`;
+  status += `📢 AdsManager: ${adsManager.firebaseDB?.initialized ? '✅ Подключен' : '❌ Не подключен'}\n`;
+  status += `🏙️ CityManager: ${cityManager.firebaseDB?.initialized ? '✅ Подключен' : '❌ Не подключен'}\n`;
+  status += `📍 PlaceManager: ${placeManager.firebaseDB?.initialized ? '✅ Подключен' : '❌ Не подключен'}\n\n`;
+  
+  // Проверяем данные
+  try {
+    const categories = await categoryManager.getAllCategories();
+    status += `\n📊 *Результат чтения:*\n`;
+    status += `Категорий: ${categories.length}\n`;
+    
+    const cities = await cityManager.getAllCities();
+    status += `Городов: ${cities.length}\n`;
+    
+    const ads = await adsManager.getAllAds();
+    status += `Объявлений: ${ads.length}\n`;
+    
+  } catch (error) {
+    status += `\n❌ Ошибка чтения: ${error.message}`;
+  }
+  
+  await this.sendAdminMessage(chatId, status, { parse_mode: 'Markdown' });
+});
+
+this.bot.onText(/\/testuber/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) {
+    await this.sendAdminMessage(chatId, '❌ У вас нет доступа к этой команде.');
+    return;
+  }
+  
+  await this.deleteLastMessage(chatId);
+  
+  const cities = await cityManager.getAllCities();
+  if (cities.length === 0) {
+    await this.sendAdminMessage(chatId, '📭 Нет городов для теста.');
+    return;
+  }
+  
+  const cityName = cities[0];
+  const places = await placeManager.getPlacesByCity(cityName);
+  
+  const testPlace = places.find(p => p.latitude && p.longitude);
+  
+  if (!testPlace) {
+    await this.sendAdminMessage(chatId, '❌ Нет мест с координатами для теста Uber.');
+    return;
+  }
+  
+  await this.testUberDeeplink(chatId, testPlace);
+});
+
+
+
+    
     this.bot.onText(/\/start/, async (msg) => {
       const chatId = msg.chat.id;
       const userId = msg.from.id;
@@ -1736,149 +2881,106 @@ if (place.latitude && place.longitude) {
     });
 
 this.bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-  const text = msg.text;
-  const isAdmin = this.isUserAdmin(userId);
-  
-  // Пропускаем сообщения с фото - они обрабатываются отдельным обработчиком
-  if (msg.photo) return;
-  
-  if (!text || text.startsWith('/')) return;
-  
-  const userState = this.userStates.get(chatId);
-  
-  // ✅ КРИТИЧЕСКИ ВАЖНО: Проверяем ГЛАВНОЕ МЕНЮ ПЕРВЫМ!
-  // Эти команды должны работать ВСЕГДА, даже если есть userState
-  const mainMenuCommands = [
-    '🏙️ Выбрать город',
-    '📰 Новости',
-    '📱 Наши медиа',
-    '⚙️ Администрирование',
-    '🔙 Назад',
-    '🏠 Главное меню'
-  ];
-  
-  // ✅ ЕСЛИ ЭТО КОМАНДА ИЗ ГЛАВНОГО МЕНЮ - ОБРАБАТЫВАЕМ СРАЗУ
-  if (mainMenuCommands.includes(text)) {
-    console.log(`🎯 Обработка команды главного меню: "${text}"`);
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const text = msg.text;
+    const isAdmin = this.isUserAdmin(userId);
     
-    switch(text) {
-      case '🏙️ Выбрать город':
-        // Очищаем старое состояние при выборе города
-        this.userStates.delete(chatId);
-        await this.showCitySelection(chatId, isAdmin);
-        return;
-        
-      case '📰 Новости':
-        await this.showNews(chatId, isAdmin);
-        return;
-        
-      case '📱 Наши медиа':
-        await this.showMediaLinks(chatId, isAdmin);
-        return;
-        
-      case '⚙️ Администрирование':
-        if (isAdmin) {
-          try {
-            this.adminSessions.set(chatId, true);
-            await this.showAdminPanel(chatId);
-          } catch (error) {
-            console.error('❌ Ошибка при открытии админ-панели:', error);
-            await this.sendAdminMessage(chatId, '❌ Ошибка при загрузке админ-панели: ' + error.message);
-          }
-        } else {
-          await this.sendAdminMessage(chatId, '⛔ У вас нет доступа к этой функции.');
+    // Пропускаем сообщения с фото - они обрабатываются отдельным обработчиком
+    if (msg.photo) return;
+    
+    if (!text) return;
+    
+    // ✅ КРИТИЧЕСКИ ВАЖНО: Проверяем ГЛАВНОЕ МЕНЮ ПЕРВЫМ!
+    if (text && this.isMainMenuCommand(text)) {
+        console.log(`🎯 Обработка команды главного меню: "${text}"`);
+        await this.handleMainMenuCommand(chatId, text, isAdmin);
+        return;  // ВАЖНО: завершаем обработку
+    }
+    
+    // Если текст начинается с '/' - это команда, которая обрабатывается в onText
+    if (text.startsWith('/')) return;
+    
+    const userState = this.userStates.get(chatId);
+    
+    // ✅ ПРОВЕРЯЕМ СОСТОЯНИЯ РЕДАКТИРОВАНИЯ (ВЫСОКИЙ ПРИОРИТЕТ)
+    if (userState && userState.action === 'editing_field' && userState.step === 'enter_new_value') {
+        // Если пользователь отменяет редактирование
+        if (text === '❌ Отменить редактирование') {
+            this.userStates.delete(chatId);
+            await this.bot.sendMessage(chatId, '❌ Редактирование отменено.', {
+                reply_markup: { remove_keyboard: true }
+            });
+            
+            if (userState.cityKey && userState.placeId) {
+                await this.showPlaceEditOptions(chatId, userState.cityKey, userState.placeId);
+            }
+            return;
         }
-        return;
         
-      case '🔙 Назад':
-      case '🏠 Главное меню':
-        this.userStates.delete(chatId);
-        this.adminSessions.delete(chatId);
-        await this.showMainMenu(chatId, 'Главное меню:', isAdmin);
+        // Обработка ввода нового значения
+        await this.processFieldEdit(chatId, text, userState);
         return;
-    }
-  }
-  
-  // ✅ ПРОВЕРЯЕМ СОСТОЯНИЯ РЕДАКТИРОВАНИЯ (ВЫСОКИЙ ПРИОРИТЕТ)
-  if (userState && userState.action === 'editing_field' && userState.step === 'enter_new_value') {
-    // Если пользователь отменяет редактирование
-    if (text === '❌ Отменить редактирование') {
-      this.userStates.delete(chatId);
-      await this.bot.sendMessage(chatId, '❌ Редактирование отменено.', {
-        reply_markup: { remove_keyboard: true }
-      });
-      
-      if (userState.cityKey && userState.placeId) {
-        await this.showPlaceEditOptions(chatId, userState.cityKey, userState.placeId);
-      }
-      return;
     }
     
-    // Обработка ввода нового значения
-    await this.processFieldEdit(chatId, text, userState);
-    return;
-  }
-  
-  // ✅ ТЕПЕРЬ ОБРАБАТЫВАЕМ ДРУГИЕ СОСТОЯНИЯ
-  if (userState) {
-    // Проверяем, не пытается ли пользователь просматривать город
-    if (userState.action === 'browsing_city') {
-      // Разрешаем обработку названий городов и категорий
-      const cities = await cityManager.getAllCities();
-      if (cities.includes(text)) {
+    // ✅ ТЕПЕРЬ ОБРАБАТЫВАЕМ ДРУГИЕ СОСТОЯНИЯ
+    if (userState) {
+        // Проверяем, не пытается ли пользователь просматривать город
+        if (userState.action === 'browsing_city') {
+            // Разрешаем обработку названий городов и категорий
+            const cities = await cityManager.getAllCities();
+            if (cities.includes(text)) {
+                await this.handleCitySelection(chatId, this.getCityKey(text), isAdmin);
+                return;
+            }
+            
+            const categories = await categoryManager.getAllCategories();
+            const category = categories.find(c => c.name === text);
+            if (category && userState.selectedCity) {
+                await this.showPlacesByCategory(chatId, this.getCityKey(userState.selectedCity), category.id);
+                return;
+            }
+        }
+        
+        // Проверяем, не выбирает ли пользователь место
+        if (userState.action === 'selecting_place') {
+            const place = userState.places.find(p => p.name.substring(0, 30) === text || p.name === text);
+            if (place) {
+                await this.showPlaceDetails(chatId, userState.cityKey, place.id, userId);
+                return;
+            }
+        }
+        
+        // Для всех остальных состояний вызываем handleUserState
+        await this.handleUserState(chatId, userId, msg, userState, isAdmin);
+        return;
+    }
+    
+    // ✅ ЕСЛИ НЕТ СОСТОЯНИЯ - ПРОВЕРЯЕМ, НЕ ГОРОД/КАТЕГОРИЯ ЛИ ЭТО
+    // Проверяем, это ли название города
+    const cities = await cityManager.getAllCities();
+    if (cities.includes(text)) {
         await this.handleCitySelection(chatId, this.getCityKey(text), isAdmin);
         return;
-      }
-      
-      const categories = await categoryManager.getAllCategories();
-      const category = categories.find(c => c.name === text);
-      if (category && userState.selectedCity) {
+    }
+    
+    // Проверяем, это ли название категории
+    const categories = await categoryManager.getAllCategories();
+    const category = categories.find(c => c.name === text);
+    if (category && userState && userState.selectedCity) {
         await this.showPlacesByCategory(chatId, this.getCityKey(userState.selectedCity), category.id);
         return;
-      }
     }
     
-    // Проверяем, не выбирает ли пользователь место
-    if (userState.action === 'selecting_place') {
-      const place = userState.places.find(p => p.name.substring(0, 30) === text || p.name === text);
-      if (place) {
-        await this.showPlaceDetails(chatId, userState.cityKey, place.id, userId);
-        return;
-      }
-    }
-    
-    // Для всех остальных состояний вызываем handleUserState
-    await this.handleUserState(chatId, userId, msg, userState, isAdmin);
-    return;
-  }
-  
-  // ✅ ЕСЛИ НЕТ СОСТОЯНИЯ - ПРОВЕРЯЕМ, НЕ ГОРОД/КАТЕГОРИЯ ЛИ ЭТО
-  // Проверяем, это ли название города
-  const cities = await cityManager.getAllCities();
-  if (cities.includes(text)) {
-    await this.handleCitySelection(chatId, this.getCityKey(text), isAdmin);
-    return;
-  }
-  
-  // Проверяем, это ли название категории
-  const categories = await categoryManager.getAllCategories();
-  const category = categories.find(c => c.name === text);
-  if (category && userState && userState.selectedCity) {
-    await this.showPlacesByCategory(chatId, this.getCityKey(userState.selectedCity), category.id);
-    return;
-  }
-  
-  // ✅ ЕСЛИ НИЧЕГО НЕ ПОДОШЛО - ПОКАЗЫВАЕМ ПОДСКАЗКУ
-  await this.bot.sendMessage(
-    chatId,
-    '🤔 Не понимаю эту команду.\n\n' +
-    'Используйте меню внизу или команду /start',
-    {
-      reply_markup: this.getKeyboardWithMainMenu(isAdmin)
-    }
-  );
+    // ✅ ЕСЛИ НИЧЕГО НЕ ПОДОШЛО - ПОКАЗЫВАЕМ ПОДСКАЗКУ
+    await this.bot.sendMessage(
+        chatId,
+        '🤔 Не понимаю эту команду.\n\n' +
+        'Используйте меню внизу или команду /start',
+        {
+            reply_markup: this.getKeyboardWithMainMenu(isAdmin)
+        }
+    );
 });
     // ============ ОБРАБОТЧИК CALLBACK_QUERY ============
     this.bot.on('callback_query', async (callbackQuery) => {
@@ -1941,6 +3043,25 @@ this.bot.on('message', async (msg) => {
     this.bot.onText(/\/help/, (msg) => this.handleHelpCommand(msg));
     this.bot.onText(/\/cleanup/, (msg) => this.handleCleanupCommand(msg));
     
+this.bot.onText(/\/testmain/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const isAdmin = this.isUserAdmin(userId);
+  
+  console.log(`🧪 Тест главного меню для ${userId}`);
+  
+  // Показываем главное меню разными способами
+  await this.showMainMenu(chatId, 'Тест главного меню:', isAdmin);
+  
+  // Проверяем через 2 секунды
+  setTimeout(async () => {
+    await this.bot.sendMessage(
+      chatId,
+      'Если вы не видите главное меню выше, есть проблема с отправкой сообщений.'
+    );
+  }, 2000);
+});
+
     this.bot.onText(/\/testfirebase/, async (msg) => {
       const chatId = msg.chat.id;
       const userId = msg.from.id;
@@ -2058,6 +3179,11 @@ this.bot.on('message', async (msg) => {
         await this.showPlacesByCategory(chatId, params[0], params[1]);
         break;
         
+      case 'copy_coords':
+        await this.handleCopyCoords(chatId, params[0], params[1]);
+        break;
+
+
         case 'copy_phone':
         await this.handleCopyPhone(chatId, params[0], params[1]);
         break;
@@ -2385,6 +3511,39 @@ case 'delete_social_item':
     }
   }
 
+// Метод тестирования Uber
+async testUberLink(chatId, place) {
+  const uberLink = this.getUberLinkForPlace(place);
+  const googleMapsLink = `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=driving`;
+  
+  let message = `🚗 *Тест ссылок Uber*\n\n`;
+  message += `📍 *Место:* ${place.name}\n`;
+  message += `🌍 *Координаты:* ${place.latitude}, ${place.longitude}\n`;
+  message += `📌 *Адрес:* ${place.address || 'нет'}\n`;
+  message += `🏷️ *Google Place ID:* ${place.google_place_id || 'нет'}\n\n`;
+  message += `*Ссылка Uber:*\n\`${uberLink}\`\n\n`;
+  message += `*Проверка:*\n`;
+  message += `• Протокол: ${uberLink?.startsWith('https://') ? '✅ HTTPS' : '❌ Не HTTPS'}\n`;
+  message += `• Telegram безопасность: ${this.isTelegramSafeUrl(uberLink) ? '✅ Безопасно' : '❌ Небезопасно'}\n`;
+  
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '🚗 Открыть Uber', url: uberLink },
+        { text: '🗺️ Маршрут', url: googleMapsLink }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
+
   async handleAdsManagement(chatId, action) {
     switch(action) {
       case 'list':
@@ -2467,32 +3626,41 @@ case 'delete_social_item':
   }
 
   // ============ ОСНОВНЫЕ МЕТОДЫ ИНТЕРФЕЙСА ============
-  async showMainMenu(chatId, text = 'Выберите действие:', isAdmin = false) {
-    this.userStates.delete(chatId);
-    this.adminSessions.delete(chatId);
-    
-    await this.sendAndTrack(chatId, text, {
-      reply_markup: this.getKeyboardWithMainMenu(isAdmin)
-    });
-  }
+async showMainMenu(chatId, text = 'Выберите действие:', isAdmin = false) {
+  // Полностью очищаем все состояния
+  this.userStates.delete(chatId);
+  this.adminSessions.delete(chatId);
+  this.userPhotos.delete(chatId);
+  this.lastBotMessages.delete(chatId);
+  
+  console.log(`🎮 [showMainMenu] Показываю главное меню для ${chatId}, isAdmin: ${isAdmin}`);
+  
+  // Используем sendAdminMessage для гарантированной отправки (без удаления)
+  await this.sendAdminMessage(chatId, `${text}\n\nВыберите действие:`, {
+    reply_markup: this.getKeyboardWithMainMenu(isAdmin)
+  });
+}
 
-  getKeyboardWithMainMenu(isAdmin = false) {
-    const keyboard = [
-      ['🏙️ Выбрать город'],
-      ['📰 Новости', '📱 Наши медиа']
-    ];
-    
-    if (isAdmin) {
-      keyboard.push(['⚙️ Администрирование']);
-    }
-    
-    return {
-      keyboard: keyboard,
-      resize_keyboard: true,
-      one_time_keyboard: false
-    };
+ getKeyboardWithMainMenu(isAdmin = false) {
+  const keyboard = [
+    ['🏙️ Выбрать город'],
+    ['📰 Новости'],
+    ['📱 Наши медиа']
+  ];
+  
+  if (isAdmin) {
+    keyboard.push(['⚙️ Администрирование']);
   }
-
+  
+  // Не добавляем "🏠 Главное меню" если мы уже в главном меню
+  // Это может вызывать циклические ссылки
+  
+  return {
+    keyboard: keyboard,
+    resize_keyboard: true,
+    one_time_keyboard: false
+  };
+}
   // Метод для преобразования inline кнопок в регулярные кнопки
   inlineToRegularKeyboard(inlineKeyboard, isAdmin = false) {
     const keyboard = [];
@@ -2529,11 +3697,23 @@ case 'delete_social_item':
     };
   }
 
-  async showCitySelection(chatId, isAdmin = false) {
-    const cities = await cityManager.getAllCities();
+async showCitySelection(chatId, isAdmin = false) {
+  try {
+    console.log(`🔍 [showCitySelection] Начинаю для ${chatId}`);
+    
+    // Добавляем таймаут для запроса к Firebase
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Таймаут получения городов из Firebase (10 секунд)')), 10000);
+    });
+    
+    const citiesPromise = cityManager.getAllCities();
+    const cities = await Promise.race([citiesPromise, timeoutPromise]);
+    
+    console.log(`🔍 [showCitySelection] Получено городов: ${cities.length}`, cities);
     
     if (cities.length === 0) {
-      await this.sendAndTrack(
+      console.log(`⚠️ [showCitySelection] Список городов пуст`);
+      await this.sendAdminMessage(
         chatId,
         '📭 Список городов пуст.\n\n' +
         (isAdmin ? 'Вы можете добавить город через панель администратора.' : 'Обратитесь к администратору.')
@@ -2542,27 +3722,92 @@ case 'delete_social_item':
     }
     
     const message = '🏙️ *Выберите город:*';
+    console.log(`🔍 [showCitySelection] Создаю inline-кнопки для ${cities.length} городов`);
     
-    // ✅ ИСПОЛЬЗУЕМ INLINE КНОПКИ ДЛЯ ГОРОДОВ
     const inlineKeyboard = {
       inline_keyboard: []
     };
     
     for (let i = 0; i < cities.length; i += 1) {
+      const cityKey = this.getCityKey(cities[i]);
+      console.log(`🔍 [showCitySelection] Город ${i+1}: "${cities[i]}" -> ключ: "${cityKey}"`);
+      
       inlineKeyboard.inline_keyboard.push([
         {
           text: cities[i],
-          callback_data: `select_city:${this.getCityKey(cities[i])}`
+          callback_data: `select_city:${cityKey}`
         }
       ]);
     }
     
-    // ✅ Отправляем с inline-кнопками и регулярным меню внизу
-    await this.sendAndTrack(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: inlineKeyboard
-    });
+    console.log(`🔍 [showCitySelection] Отправляю сообщение с клавиатурой`);
+    
+    // Попробуем отправить разными способами
+    try {
+      // Способ 1: через sendAndTrack
+      const result = await this.sendAndTrack(chatId, message, {
+        parse_mode: 'Markdown',
+        reply_markup: inlineKeyboard
+      });
+      console.log(`✅ [showCitySelection] Сообщение отправлено через sendAndTrack, ID: ${result?.message_id}`);
+    } catch (error1) {
+      console.error(`❌ [showCitySelection] Ошибка sendAndTrack:`, error1.message);
+      
+      try {
+        // Способ 2: через sendAdminMessage
+        const result2 = await this.sendAdminMessage(chatId, message, {
+          parse_mode: 'Markdown',
+          reply_markup: inlineKeyboard
+        });
+        console.log(`✅ [showCitySelection] Сообщение отправлено через sendAdminMessage, ID: ${result2?.message_id}`);
+      } catch (error2) {
+        console.error(`❌ [showCitySelection] Ошибка sendAdminMessage:`, error2.message);
+        
+        try {
+          // Способ 3: через прямой вызов bot.sendMessage
+          const result3 = await this.bot.sendMessage(chatId, message, {
+            parse_mode: 'Markdown',
+            reply_markup: inlineKeyboard
+          });
+          console.log(`✅ [showCitySelection] Сообщение отправлено напрямую, ID: ${result3.message_id}`);
+        } catch (error3) {
+          console.error(`❌ [showCitySelection] Ошибка прямого вызова:`, error3.message);
+          
+          // Способ 4: отправить без разметки
+          await this.bot.sendMessage(
+            chatId, 
+            '🏙️ Выберите город из списка ниже:\n\n' + 
+            cities.map(c => `• ${c}`).join('\n') +
+            '\n\nНапишите название города:'
+          );
+        }
+      }
+    }
+    
+    console.log(`✅ [showCitySelection] Завершено для ${chatId}`);
+    
+  } catch (error) {
+    console.error(`❌ [showCitySelection] Ошибка:`, error);
+    
+    if (error.message.includes('Таймаут')) {
+      await this.sendAdminMessage(
+        chatId,
+        '⏱️ *Таймаут запроса*\n\n' +
+        'Не удалось получить список городов из Firebase в течение 10 секунд.\n\n' +
+        'Возможные причины:\n' +
+        '1. Проблемы с подключением к Firebase\n' +
+        '2. Слишком медленный ответ от Firebase\n' +
+        '3. Ошибка в конфигурации Firebase\n\n' +
+        'Проверьте логи Firebase и сетевое подключение.'
+      );
+    } else {
+      await this.sendAdminMessage(
+        chatId,
+        `❌ Ошибка при загрузке городов: ${error.message}`
+      );
+    }
   }
+}
 
 // 1. handleCitySelection - сортировка категорий
 async handleCitySelection(chatId, cityKey, isAdmin) {
@@ -3909,64 +5154,89 @@ if (state.action === 'editing_social_item') {
     }
   }
   
-  async finishAddingCity(chatId, state) {
-    console.log('🏁 Начинаю завершение добавления города...');
-    
-    let photoUrl = null;
-    let photoFileName = null;
-    
-    // 📸 Загружаем фото в Firebase если оно есть
-    if (state.photoFileId && this.firebaseStorage && this.firebaseStorage.initialized) {
-      try {
-        console.log('☁️ Загружаю фото города в Firebase...');
-        
-        const firebaseResult = await this.firebaseStorage.uploadPhotoFromTelegram(
-          state.photoFileId,
-          this.botToken
-        );
-        
-        if (firebaseResult.success) {
-          photoUrl = firebaseResult.url;
-          photoFileName = firebaseResult.fileName;
-          console.log(`✅ Фото города загружено в Firebase: ${photoUrl}`);
-        } else {
-          console.log(`❌ Не удалось загрузить фото в Firebase:`, firebaseResult.error);
-        }
-      } catch (error) {
-        console.error(`❌ Ошибка при загрузке фото в Firebase:`, error);
-      }
-    } else if (state.photoFileId) {
-      console.log('⚠️ Firebase Storage не доступен, сохраняю только file_id');
-    }
-    
-    // 🏙️ Добавляем город с информацией о фото
-    const result = await cityManager.addCity(state.cityName, {
-      photoFileId: state.photoFileId,
-      photoUrl: photoUrl,
-      photoFileName: photoFileName
-    });
-    
-    if (result.success) {
-      let message = `✅ Город "${result.cityName}" успешно добавлен!\n\n` +
-                    `📁 Файл: \`${result.fileName}\``;
+async finishAddingCity(chatId, state) {
+  console.log('🏁 Начинаю завершение добавления города...');
+  
+  let photoUrl = null;
+  let photoFileName = null;
+  
+  // 📸 Загружаем фото в Firebase если оно есть
+  if (state.photoFileId && this.firebaseStorage && this.firebaseStorage.initialized) {
+    try {
+      console.log('☁️ Загружаю фото города в Firebase...');
       
-      if (photoUrl) {
-        message += `\n📸 Фото: загружено в Firebase`;
-      } else if (state.photoFileId) {
-        message += `\n📸 Фото: сохранено (file_id: ${state.photoFileId})`;
+      const firebaseResult = await this.firebaseStorage.uploadPhotoFromTelegram(
+        state.photoFileId,
+        this.botToken
+      );
+      
+      if (firebaseResult.success) {
+        photoUrl = firebaseResult.url;
+        photoFileName = firebaseResult.fileName;
+        console.log(`✅ Фото города загружено в Firebase: ${photoUrl}`);
       } else {
-        message += `\n📸 Фото: не добавлено`;
+        console.log(`❌ Не удалось загрузить фото в Firebase:`, firebaseResult.error);
       }
+    } catch (error) {
+      console.error(`❌ Ошибка при загрузке фото в Firebase:`, error);
+    }
+  } else if (state.photoFileId) {
+    console.log('⚠️ Firebase Storage не доступен, сохраняю только file_id');
+  }
+  
+  // 🔥 FIREBASE-FIRST: Сначала сохраняем в Firebase
+  let firebaseResult = null;
+  if (this.firebaseDB && this.firebaseDB.initialized) {
+    try {
+      firebaseResult = await this.firebaseDB.addCity(state.cityName, {
+        photoFileId: state.photoFileId,
+        photoUrl: photoUrl,
+        photoFileName: photoFileName,
+        createdAt: Date.now(),
+        createdBy: 'bot'
+      });
       
-      await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
+      console.log(`✅ Город "${state.cityName}" добавлен в Firebase:`, firebaseResult);
+    } catch (firebaseError) {
+      console.error('❌ Ошибка добавления города в Firebase:', firebaseError);
+    }
+  }
+  
+  // 🏙️ Также добавляем город в локальные файлы (для совместимости)
+  const localResult = await cityManager.addCity(state.cityName, {
+    photoFileId: state.photoFileId,
+    photoUrl: photoUrl,
+    photoFileName: photoFileName
+  });
+  
+  if (localResult.success) {
+    let message = `✅ Город "${localResult.cityName}" успешно добавлен!\n\n`;
+    
+    if (firebaseResult && firebaseResult.success) {
+      message += `☁️ *Данные сохранены в Firebase*\n`;
     } else {
-      await this.sendAdminMessage(chatId, `❌ ${result.message}`);
+      message += `📁 *Данные сохранены в локальных файлах*\n`;
+      message += `(Firebase временно недоступен)\n`;
     }
     
-    this.userStates.delete(chatId);
-    await this.showAdminPanel(chatId);
+    message += `📁 Файл: \`${localResult.fileName}\`\n`;
+    
+    if (photoUrl) {
+      message += `📸 Фото: загружено в Firebase Storage\n`;
+    } else if (state.photoFileId) {
+      message += `📸 Фото: сохранено (file_id: ${state.photoFileId})\n`;
+    } else {
+      message += `📸 Фото: не добавлено\n`;
+    }
+    
+    await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
+  } else {
+    await this.sendAdminMessage(chatId, `❌ ${localResult.message}`);
   }
-
+  
+  this.userStates.delete(chatId);
+  await this.showAdminPanel(chatId);
+}
 async handleAddingPlace(chatId, msg, state) {
   const text = msg.text;
 
@@ -4740,6 +6010,35 @@ async handleAddingPlace(chatId, msg, state) {
 async finishAddingPlace(chatId, state) {
   console.log('🏁 Начинаю завершение добавления места...');
   
+// 🔥 FIREBASE-FIRST: Сначала сохраняем в Firebase
+  if (this.firebaseDB && this.firebaseDB.initialized) {
+    try {
+      const firebasePlace = {
+        ...state.placeData,
+        city: state.city,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        createdBy: 'bot'
+      };
+      
+      // Добавляем фото, если они есть
+      if (this.userPhotos.has(chatId)) {
+        const photos = this.userPhotos.get(chatId);
+        if (photos.length > 0) {
+          // Загружаем фото в Firebase Storage
+          const uploadedPhotos = await this.uploadPhotosToFirebase(photos);
+          firebasePlace.photos = uploadedPhotos;
+        }
+      }
+      
+      const firebaseResult = await this.firebaseDB.addPlace(firebasePlace);
+      console.log('✅ Место сохранено в Firebase:', firebaseResult);
+      
+    } catch (firebaseError) {
+      console.error('❌ Ошибка сохранения места в Firebase:', firebaseError);
+    }
+  }
+
   // 🔍 ДЕБАГ: Проверяем данные перед сохранением
   console.log('🔍 [DEBUG finishAddingPlace] Данные места перед сохранением:', {
     socialLinks: state.placeData.social_links,
@@ -4939,6 +6238,33 @@ async finishAddingPlace(chatId, state) {
     );
     await this.showAdminPanel(chatId);
   }
+}
+
+async uploadPhotosToFirebase(photoFileIds) {
+  const uploadedPhotos = [];
+  
+  if (!this.firebaseStorage || !this.firebaseStorage.initialized) {
+    console.log('⚠️ Firebase Storage недоступен для загрузки фото');
+    return [];
+  }
+  
+  for (const fileId of photoFileIds) {
+    try {
+      const result = await this.firebaseStorage.uploadPhotoFromTelegram(fileId, this.botToken);
+      if (result.success) {
+        uploadedPhotos.push({
+          url: result.url,
+          fileName: result.fileName,
+          uploadedAt: Date.now()
+        });
+        console.log(`✅ Фото загружено в Firebase: ${result.url}`);
+      }
+    } catch (error) {
+      console.error(`❌ Ошибка загрузки фото ${fileId}:`, error);
+    }
+  }
+  
+  return uploadedPhotos;
 }
 
   generateTaxiLinks(place) {

@@ -2,25 +2,54 @@ const cityManager = require('./cityManager');
 const categoryManager = require('./categoryManager');
 const photoManager = require('./photoManager');
 const fileManager = require('./fileManager');
+const firebaseDB = require('./firebaseDatabase');
 const { v4: uuidv4 } = require('uuid');
 
 class PlaceManager {
   constructor() {
-    // ID генерируем динамически
+    this.firebaseDB = null;
   }
 
-  // Получить все места из всех городов
+  setFirebaseDB(firebaseDB) {
+    this.firebaseDB = firebaseDB;
+    console.log('✅ Firebase Database подключена к PlaceManager');
+  }
+
+  // 🔥 ПРИОРИТЕТ FIREBASE: Получить все места из всех городов
   async getAllPlaces() {
     try {
+      // ✅ ПРИОРИТЕТ 1: Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Получаю все места из Firebase...');
+        
+        try {
+          const firebasePlaces = await this.firebaseDB.getAllPlaces();
+          
+          if (firebasePlaces && firebasePlaces.length > 0) {
+            console.log(`✅ [FIREBASE] Получено ${firebasePlaces.length} мест`);
+            return firebasePlaces;
+          }
+          
+          console.log('📭 Firebase пуст, проверяю локальные файлы...');
+        } catch (firebaseError) {
+          console.error('❌ Ошибка Firebase в getAllPlaces:', firebaseError.message);
+        }
+      } else {
+        console.warn('⚠️ Firebase не инициализирован, используются локальные файлы');
+      }
+      
+      // ⚠️ FALLBACK: Локальные файлы
+      console.log('📁 Получаю места из локальных файлов городов');
       const allCities = await cityManager.getAllCities();
       const allPlaces = [];
       
       for (const city of allCities) {
-        const places = await this.getPlacesByCity(city.name);
+        const places = await this.getPlacesByCityLocal(city);
         allPlaces.push(...places);
       }
       
-      console.log(`✅ [PlaceManager] Получено ${allPlaces.length} мест из всех городов`);
+      console.log(`✅ Получено ${allPlaces.length} мест из локальных файлов`);
+      
       return allPlaces;
     } catch (error) {
       console.error('❌ Ошибка при получении всех мест:', error.message);
@@ -28,20 +57,188 @@ class PlaceManager {
     }
   }
 
-  // Получить все места города
+  // 🔥 ПРИОРИТЕТ FIREBASE: Получить все места города
   async getPlacesByCity(cityName) {
-    const cityData = await cityManager.getCityData(cityName);
-    return cityData.places || [];
+    try {
+      // ✅ ПРИОРИТЕТ 1: Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log(`🔥 [ПРИОРИТЕТ] Получаю места города "${cityName}" из Firebase...`);
+        
+        try {
+          const firebasePlaces = await this.getPlacesByCityFirebase(cityName);
+          
+          if (firebasePlaces && firebasePlaces.length > 0) {
+            console.log(`✅ [FIREBASE] Получено ${firebasePlaces.length} мест для города "${cityName}"`);
+            return firebasePlaces;
+          }
+          
+          console.log(`📭 Места города "${cityName}" не найдены в Firebase, проверяю локальный файл...`);
+        } catch (firebaseError) {
+          console.error(`❌ Ошибка Firebase для города "${cityName}":`, firebaseError.message);
+        }
+      }
+      
+      // ⚠️ FALLBACK: Локальные файлы
+      return await this.getPlacesByCityLocal(cityName);
+      
+    } catch (error) {
+      console.error(`❌ Общая ошибка при получении мест города "${cityName}":`, error);
+      return [];
+    }
   }
 
+  // Получить места из Firebase
+  async getPlacesByCityFirebase(cityName) {
+    try {
+      if (!this.firebaseDB || !this.firebaseDB.initialized) {
+        return [];
+      }
+      
+      const cityId = this.generateCityId(cityName);
+      const cityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
+      const snapshot = await cityRef.once('value');
+      const cityData = snapshot.val();
+      
+      if (!cityData || !cityData.places) {
+        return [];
+      }
+      
+      // Преобразуем объект в массив, если нужно
+      if (typeof cityData.places === 'object' && !Array.isArray(cityData.places)) {
+        return Object.values(cityData.places);
+      }
+      
+      return cityData.places || [];
+    } catch (error) {
+      console.error(`❌ Ошибка получения мест из Firebase для ${cityName}:`, error);
+      return [];
+    }
+  }
+
+  // Получить места из локального файла
+async getPlacesByCityLocal(cityName) {
+  try {
+    console.log(`📁 [getPlacesByCityLocal] Получаю данные города "${cityName}"`);
+    
+    const cityData = await cityManager.getCityData(cityName);
+    
+    console.log(`📊 [DEBUG] Данные города "${cityName}":`, {
+      exists: !!cityData,
+      hasPlaces: cityData && !!cityData.places,
+      placesType: cityData && cityData.places ? typeof cityData.places : 'undefined',
+      placesIsArray: cityData && cityData.places ? Array.isArray(cityData.places) : false,
+      placesLength: cityData && cityData.places ? (Array.isArray(cityData.places) ? cityData.places.length : Object.keys(cityData.places).length) : 0,
+      keys: cityData ? Object.keys(cityData) : []
+    });
+    
+    if (!cityData) {
+      console.warn(`⚠️ Город "${cityName}" не найден`);
+      return [];
+    }
+    
+    if (!cityData.places) {
+      console.warn(`⚠️ У города "${cityName}" нет массива places`);
+      console.log(`📋 Доступные ключи:`, Object.keys(cityData));
+      return [];
+    }
+    
+    const places = Array.isArray(cityData.places) ? cityData.places : [];
+    
+    console.log(`✅ [getPlacesByCityLocal] Получено ${places.length} мест для города "${cityName}"`);
+    
+    if (places.length > 0) {
+      console.log(`📍 Первое место:`, {
+        id: places[0].id,
+        name: places[0].name,
+        category: places[0].category_name
+      });
+    }
+    
+    return places;
+    
+  } catch (error) {
+    console.error(`❌ Ошибка получения мест локально для ${cityName}:`, error);
+    return [];
+  }
+}
   // Получить места по категории
   async getPlacesByCategory(cityName, categoryId) {
     const places = await this.getPlacesByCity(cityName);
     return places.filter(place => place.category_id == categoryId);
   }
 
-  // Получить место по ID (с загрузкой фото)
+  // 🔥 ПРИОРИТЕТ FIREBASE: Получить место по ID
   async getPlaceById(city, placeId) {
+    try {
+      // ✅ ПРИОРИТЕТ 1: Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log(`🔥 [ПРИОРИТЕТ] Получаю место ID:${placeId} из Firebase...`);
+        
+        try {
+          const firebasePlace = await this.getPlaceByIdFirebase(placeId);
+          
+          if (firebasePlace) {
+            console.log(`✅ [FIREBASE] Найдено место: ${firebasePlace.name}`);
+            return firebasePlace;
+          }
+          
+          console.log(`📭 Место ID:${placeId} не найдено в Firebase, проверяю локальный файл...`);
+        } catch (firebaseError) {
+          console.error(`❌ Ошибка Firebase для места ID:${placeId}:`, firebaseError.message);
+        }
+      }
+      
+      // ⚠️ FALLBACK: Локальные файлы
+      return await this.getPlaceByIdLocal(city, placeId);
+      
+    } catch (error) {
+      console.error(`❌ Ошибка при получении места: ${error.message}`);
+      return null;
+    }
+  }
+
+  // Получить место из Firebase по ID
+  async getPlaceByIdFirebase(placeId) {
+    try {
+      if (!this.firebaseDB || !this.firebaseDB.initialized) {
+        return null;
+      }
+      
+      // 🔍 Ищем место во всех городах
+      const citiesRef = this.firebaseDB.db.ref('cities');
+      const snapshot = await citiesRef.once('value');
+      const citiesData = snapshot.val();
+      
+      if (!citiesData) {
+        return null;
+      }
+      
+      // Ищем место по ID во всех городах
+      for (const [cityId, cityData] of Object.entries(citiesData)) {
+        if (cityData.places) {
+          let places = cityData.places;
+          
+          // Если places - объект, преобразуем в массив
+          if (typeof places === 'object' && !Array.isArray(places)) {
+            places = Object.values(places);
+          }
+          
+          const place = places.find(p => p.id === placeId);
+          if (place) {
+            return place;
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('❌ Ошибка получения места из Firebase:', error);
+      return null;
+    }
+  }
+
+  // Получить место из локального файла по ID
+  async getPlaceByIdLocal(city, placeId) {
     try {
       const cityData = await cityManager.getCityData(city);
       const place = cityData.places.find(p => p.id === placeId);
@@ -52,54 +249,18 @@ class PlaceManager {
       }
       
       console.log(`✅ Найдено место: ${place.name} в городе ${city}`);
-      
-      // ✅ ДОБАВЛЕНО: Проверка и логирование social_links
-      console.log('🔍 Социальные сети места:', {
-        hasSocialLinks: !!place.social_links,
-        type: typeof place.social_links,
-        keys: place.social_links ? Object.keys(place.social_links) : [],
-        value: place.social_links
-      });
-      
-      // Убедимся, что photos всегда является массивом
-      if (!Array.isArray(place.photos)) {
-        console.log(`⚠️ У места ${place.name} photos не является массивом, исправляю...`);
-        place.photos = [];
-      }
-      
-      console.log(`📸 У места ${place.photos.length} фото`);
-      
-      // Логируем структуру фото для отладки
-      if (place.photos.length > 0) {
-        console.log('🔍 Структура фото места:', JSON.stringify(place.photos, null, 2));
-      }
-      
       return place;
-      
     } catch (error) {
-      console.error(`❌ Ошибка при получении места: ${error.message}`);
+      console.error('❌ Ошибка получения места локально:', error);
       return null;
     }
   }
 
-  // Добавить место
+  // 🔥 ПРИОРИТЕТ FIREBASE: Добавить место
   async addPlace(cityName, placeData) {
     try {
       console.log('📝 Добавляю место:', placeData.name);
-      console.log('📸 Получено фото:', placeData.photos ? placeData.photos.length : 0);
-      console.log('🔗 Получены соцсети:', placeData.social_links ? Object.keys(placeData.social_links) : 'нет');
       
-      // Загружаем данные города через cityManager
-      const cityData = await cityManager.getCityData(cityName);
-      
-      if (!cityData) {
-        return {
-          success: false,
-          message: 'Город не найден'
-        };
-      }
-      
-      // ✅ ИСПРАВЛЕНО: Добавлено поле social_links
       const newPlace = {
         id: uuidv4(),
         name: placeData.name,
@@ -117,49 +278,49 @@ class PlaceManager {
         latitude: placeData.latitude || null,
         longitude: placeData.longitude || null,
         google_place_id: placeData.google_place_id || null,
-        social_links: placeData.social_links || {}, // ✅ ВАЖНОЕ ИСПРАВЛЕНИЕ
+        social_links: placeData.social_links || {},
+        city_id: this.generateCityId(cityName),
+        city_name: cityName,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        photos: [] // Массив для сохранения информации о фото
+        photos: []
       };
       
-      // ✅ ИСПРАВЛЕНО: Сохраняем фото С URL!
+      // Сохраняем фото
       if (placeData.photos && Array.isArray(placeData.photos) && placeData.photos.length > 0) {
         console.log('💾 Сохраняю информацию о фото...');
         
-        newPlace.photos = placeData.photos.map(photo => {
-          // Проверяем, что есть URL
-          if (!photo.url) {
-            console.warn('⚠️ Фото без URL:', photo);
-          }
-          
-          return {
-            url: photo.url,              // ✅ ГЛАВНОЕ - URL!
-            fileName: photo.fileName,
-            uploadedAt: photo.uploadedAt || new Date().toISOString(),
-            telegramFileId: photo.telegramFileId || null
-          };
-        });
+        newPlace.photos = placeData.photos.map(photo => ({
+          url: photo.url,
+          fileName: photo.fileName,
+          uploadedAt: photo.uploadedAt || new Date().toISOString(),
+          telegramFileId: photo.telegramFileId || null
+        }));
         
-        console.log('✅ Информация о фото сохранена:', newPlace.photos);
+        console.log('✅ Информация о фото сохранена:', newPlace.photos.length);
       }
       
-      // Добавляем место в массив
-      if (!cityData.places) {
-        cityData.places = [];
+      // ✅ ПРИОРИТЕТ 1: Сохраняем в Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Сохраняю место в Firebase...');
+        
+        try {
+          await this.savePlaceToFirebase(cityName, newPlace);
+          console.log('✅ [FIREBASE] Место сохранено');
+        } catch (firebaseError) {
+          console.error('❌ Ошибка сохранения в Firebase:', firebaseError.message);
+          // Продолжаем с локальным сохранением
+        }
       }
       
-      cityData.places.push(newPlace);
+      // ⚠️ FALLBACK: Сохраняем локально (всегда сохраняем локальную копию)
+      console.log('📁 Сохраняю место локально...');
+      const saved = await this.savePlaceToLocal(cityName, newPlace);
       
-      // Сохраняем обновленные данные через cityManager
-      console.log('💾 Сохраняю данные города...');
-      const saved = await cityManager.saveCityData(cityName, cityData);
-      
-      if (!saved || !saved.success) {
-        console.error('❌ Не удалось сохранить данные города');
+      if (!saved) {
         return {
           success: false,
-          message: 'Не удалось сохранить данные'
+          message: 'Не удалось сохранить место локально'
         };
       }
       
@@ -179,24 +340,70 @@ class PlaceManager {
       };
     }
   }
-  
-  async getCityStats(cityName) {
+
+  // Сохранить место в Firebase
+  async savePlaceToFirebase(cityName, placeData) {
+    try {
+      if (!this.firebaseDB || !this.firebaseDB.initialized) {
+        return;
+      }
+      
+      const cityId = this.generateCityId(cityName);
+      const cityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
+      const snapshot = await cityRef.once('value');
+      let cityData = snapshot.val() || { name: cityName, places: [] };
+      
+      // Убедимся, что places - объект (Firebase лучше работает с объектами)
+      if (!cityData.places || typeof cityData.places !== 'object') {
+        cityData.places = {};
+      }
+      
+      // Добавляем/обновляем место
+      cityData.places[placeData.id] = placeData;
+      cityData.updatedAt = new Date().toISOString();
+      
+      await cityRef.set(cityData);
+      console.log(`✅ Место сохранено в Firebase в городе ${cityName}`);
+    } catch (error) {
+      console.error('❌ Ошибка сохранения места в Firebase:', error);
+      throw error;
+    }
+  }
+
+  // Сохранить место локально
+  async savePlaceToLocal(cityName, placeData) {
     try {
       const cityData = await cityManager.getCityData(cityName);
       
-      if (!cityData || !cityData.places) {
-        return {
-          totalPlaces: 0,
-          categoriesCount: {}
-        };
+      if (!cityData) {
+        console.error('❌ Город не найден');
+        return false;
       }
       
+      if (!cityData.places) {
+        cityData.places = [];
+      }
+      
+      cityData.places.push(placeData);
+      
+      const saved = await cityManager.saveCityData(cityName, cityData);
+      return saved && saved.success;
+    } catch (error) {
+      console.error('❌ Ошибка сохранения места локально:', error);
+      return false;
+    }
+  }
+
+  async getCityStats(cityName) {
+    try {
+      const places = await this.getPlacesByCity(cityName);
+      
       const stats = {
-        totalPlaces: cityData.places.length,
+        totalPlaces: places.length,
         categoriesCount: {}
       };
       
-      cityData.places.forEach(place => {
+      places.forEach(place => {
         const catId = place.category_id;
         if (!stats.categoriesCount[catId]) {
           stats.categoriesCount[catId] = {
@@ -221,15 +428,10 @@ class PlaceManager {
   
   async searchPlaces(cityName, query) {
     try {
-      const cityData = await cityManager.getCityData(cityName);
-      
-      if (!cityData || !cityData.places) {
-        return [];
-      }
-      
+      const places = await this.getPlacesByCity(cityName);
       const searchQuery = query.toLowerCase();
       
-      return cityData.places.filter(place => 
+      return places.filter(place => 
         place.name.toLowerCase().includes(searchQuery) ||
         (place.description && place.description.toLowerCase().includes(searchQuery)) ||
         (place.address && place.address.toLowerCase().includes(searchQuery))
@@ -241,146 +443,164 @@ class PlaceManager {
     }
   }
 
-  // Обновить место
+  // 🔥 ПРИОРИТЕТ FIREBASE: Обновить место
   async updatePlace(cityName, placeId, updateData) {
     try {
-      console.log(`📝 [DEBUG updatePlace] Начало обновления места ID: ${placeId} в городе: "${cityName}"`);
-      console.log(`📝 [DEBUG updatePlace] Данные для обновления:`, JSON.stringify(updateData, null, 2));
+      console.log(`📝 Обновляю место ID: ${placeId} в городе: "${cityName}"`);
       
+      // ✅ ПРИОРИТЕТ 1: Обновляем в Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Обновляю место в Firebase...');
+        
+        try {
+          await this.updatePlaceInFirebase(cityName, placeId, updateData);
+          console.log('✅ [FIREBASE] Место обновлено');
+        } catch (firebaseError) {
+          console.error('❌ Ошибка обновления в Firebase:', firebaseError.message);
+          // Продолжаем с локальным обновлением
+        }
+      }
+      
+      // ⚠️ FALLBACK: Обновляем локально
+      console.log('📁 Обновляю место локально...');
+      const updated = await this.updatePlaceLocal(cityName, placeId, updateData);
+      
+      if (!updated) {
+        return { success: false, message: 'Место не найдено' };
+      }
+      
+      return { 
+        success: true, 
+        place: updated,
+        message: 'Место успешно обновлено'
+      };
+      
+    } catch (error) {
+      console.error('❌ Ошибка updatePlace:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  // Обновить место в Firebase
+  async updatePlaceInFirebase(cityName, placeId, updateData) {
+    try {
+      if (!this.firebaseDB || !this.firebaseDB.initialized) {
+        return;
+      }
+      
+      const cityId = this.generateCityId(cityName);
+      const cityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
+      const snapshot = await cityRef.once('value');
+      let cityData = snapshot.val();
+      
+      if (!cityData || !cityData.places) {
+        throw new Error('Город или места не найдены в Firebase');
+      }
+      
+      // Ищем место
+      let placeFound = false;
+      
+      if (cityData.places[placeId]) {
+        // Если places - объект
+        cityData.places[placeId] = {
+          ...cityData.places[placeId],
+          ...updateData,
+          updated_at: new Date().toISOString()
+        };
+        placeFound = true;
+      } else if (Array.isArray(cityData.places)) {
+        // Если places - массив
+        const placeIndex = cityData.places.findIndex(p => p.id === placeId);
+        if (placeIndex !== -1) {
+          cityData.places[placeIndex] = {
+            ...cityData.places[placeIndex],
+            ...updateData,
+            updated_at: new Date().toISOString()
+          };
+          placeFound = true;
+        }
+      }
+      
+      if (!placeFound) {
+        throw new Error('Место не найдено в Firebase');
+      }
+      
+      cityData.updatedAt = new Date().toISOString();
+      await cityRef.set(cityData);
+      console.log('✅ Место обновлено в Firebase');
+    } catch (error) {
+      console.error('❌ Ошибка обновления места в Firebase:', error);
+      throw error;
+    }
+  }
+
+  // Обновить место локально
+  async updatePlaceLocal(cityName, placeId, updateData) {
+    try {
       const cityData = await cityManager.getCityData(cityName);
       
       if (!cityData || !cityData.places) {
-        console.error(`❌ [DEBUG updatePlace] Город "${cityName}" не найден или нет мест`);
-        return { success: false, message: 'Город не найден' };
+        console.error('❌ Город или места не найдены');
+        return null;
       }
-      
-      console.log(`📝 [DEBUG updatePlace] Всего мест в городе: ${cityData.places.length}`);
       
       const placeIndex = cityData.places.findIndex(p => p.id === placeId);
       
       if (placeIndex === -1) {
-        console.error(`❌ [DEBUG updatePlace] Место с ID ${placeId} не найдено в городе "${cityName}"`);
-        return { success: false, message: 'Место не найдено' };
+        console.error('❌ Место не найдено');
+        return null;
       }
       
-      console.log(`📝 [DEBUG updatePlace] Найденное место:`, cityData.places[placeIndex].name);
-      
-      // Сохраняем старые данные для логирования
-      const oldPlace = { ...cityData.places[placeIndex] };
-      
-      // Обновляем поля места
       cityData.places[placeIndex] = {
         ...cityData.places[placeIndex],
         ...updateData,
         updated_at: new Date().toISOString()
       };
       
-      console.log(`📝 [DEBUG updatePlace] Старое значение:`, oldPlace);
-      console.log(`📝 [DEBUG updatePlace] Новое значение:`, cityData.places[placeIndex]);
+      await cityManager.saveCityData(cityName, cityData);
+      console.log('✅ Место обновлено локально');
       
-      // ВАЖНО: Сохраняем изменения в файл
-      const saveResult = await cityManager.saveCityData(cityName, cityData);
-      
-      console.log(`📝 [DEBUG updatePlace] Результат сохранения:`, saveResult);
-      
-      if (!saveResult || !saveResult.success) {
-        console.error(`❌ [DEBUG updatePlace] Ошибка при сохранении данных`);
-        return { success: false, message: 'Ошибка при сохранении данных' };
-      }
-      
-      console.log(`✅ [DEBUG updatePlace] Место успешно обновлено и сохранено`);
-      
-      return { 
-        success: true, 
-        place: cityData.places[placeIndex],
-        message: 'Место успешно обновлено'
-      };
+      return cityData.places[placeIndex];
     } catch (error) {
-      console.error('❌ [DEBUG updatePlace] Ошибка updatePlace:', error);
-      return { success: false, message: error.message };
+      console.error('❌ Ошибка обновления места локально:', error);
+      return null;
     }
   }
 
-  // Удалить место
+  // 🔥 ПРИОРИТЕТ FIREBASE: Удалить место
   async deletePlace(cityName, placeId) {
     try {
-      console.log(`🗑️ [DEBUG deletePlace] Начало удаления места ID: ${placeId} из города: ${cityName}`);
+      console.log(`🗑️ Удаляю место ID: ${placeId} из города: ${cityName}`);
       
-      const cityData = await cityManager.getCityData(cityName);
-      
-      if (!cityData || !cityData.places) {
-        console.error(`❌ [DEBUG deletePlace] Город "${cityName}" не найден`);
-        return { success: false, message: 'Город не найден' };
-      }
-      
-      const initialLength = cityData.places.length;
-      console.log(`🗑️ [DEBUG deletePlace] Всего мест в городе до удаления: ${initialLength}`);
-      
-      // Находим место для получения информации
-      const placeToDelete = cityData.places.find(p => p.id === placeId);
-      
-      if (!placeToDelete) {
-        console.error(`❌ [DEBUG deletePlace] Место с ID ${placeId} не найдено`);
-        return { success: false, message: 'Место не найдено' };
-      }
-      
-      console.log(`🗑️ [DEBUG deletePlace] Найдено место для удаления: "${placeToDelete.name}"`);
-      
-      // Удаляем место из массива
-      cityData.places = cityData.places.filter(p => p.id !== placeId);
-      
-      const newLength = cityData.places.length;
-      console.log(`🗑️ [DEBUG deletePlace] Мест после удаления: ${newLength}`);
-      
-      if (newLength === initialLength) {
-        console.error(`❌ [DEBUG deletePlace] Место не было удалено (длина массива не изменилась)`);
-        return { success: false, message: 'Не удалось удалить место' };
-      }
-      
-      // Удаляем фото места (если есть)
-      if (placeToDelete.photos && placeToDelete.photos.length > 0) {
-        console.log(`🗑️ [DEBUG deletePlace] Удаляю ${placeToDelete.photos.length} фото места из Firebase`);
+      // ✅ ПРИОРИТЕТ 1: Удаляем из Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Удаляю место из Firebase...');
         
-        // Удаляем каждое фото из Firebase Storage
-        for (const photo of placeToDelete.photos) {
-          try {
-            // Если это Firebase URL - удаляем из Firebase
-            if (photo.url && photo.url.includes('storage.googleapis.com')) {
-              const firebaseStorage = require('./firebaseStorage');
-              const result = await firebaseStorage.deletePhotoFromUrl(photo.url);
-              if (result.success) {
-                console.log(`✅ Фото удалено из Firebase: ${photo.url}`);
-              } else {
-                console.log(`⚠️ Ошибка удаления фото из Firebase: ${result.error}`);
-              }
-            }
-          } catch (error) {
-            console.error(`❌ Ошибка удаления фото:`, error.message);
-          }
+        try {
+          await this.deletePlaceFromFirebase(cityName, placeId);
+          console.log('✅ [FIREBASE] Место удалено');
+        } catch (firebaseError) {
+          console.error('❌ Ошибка удаления из Firebase:', firebaseError.message);
+          // Продолжаем с локальным удалением
         }
       }
       
-      // Обновляем время изменения города
-      cityData.updatedAt = new Date().toISOString();
+      // ⚠️ FALLBACK: Удаляем локально
+      console.log('📁 Удаляю место локально...');
+      const deletedPlace = await this.deletePlaceLocal(cityName, placeId);
       
-      // Сохраняем изменения
-      const saveResult = await cityManager.saveCityData(cityName, cityData);
-      
-      if (!saveResult || !saveResult.success) {
-        console.error(`❌ [DEBUG deletePlace] Ошибка при сохранении данных`);
-        return { success: false, message: 'Ошибка при сохранении данных' };
+      if (!deletedPlace) {
+        return { success: false, message: 'Место не найдено' };
       }
-      
-      console.log(`✅ [DEBUG deletePlace] Место "${placeToDelete.name}" успешно удалено`);
       
       return { 
         success: true, 
-        message: `Место "${placeToDelete.name}" удалено`,
-        deletedPlace: placeToDelete
+        message: `Место "${deletedPlace.name}" удалено`,
+        deletedPlace: deletedPlace
       };
       
     } catch (error) {
-      console.error('❌ [DEBUG deletePlace] Ошибка:', error);
+      console.error('❌ Ошибка deletePlace:', error);
       return { 
         success: false, 
         message: error.message 
@@ -388,30 +608,90 @@ class PlaceManager {
     }
   }
 
-  // Получить статистику по городу
-  async getCityStats(cityName) {
-    const places = await this.getPlacesByCity(cityName);
-    const categories = await categoryManager.getAllCategories();
-    
-    const stats = {
-      totalPlaces: places.length,
-      byCategory: {},
-      lastAdded: places.slice(-5).reverse(),
-      categoriesCount: {}
-    };
-    
-    // Считаем по категориям
-    categories.forEach(cat => {
-      const count = places.filter(p => p.category_id == cat.id).length;
-      stats.byCategory[cat.name] = count;
-      stats.categoriesCount[cat.id] = {
-        name: cat.name,
-        count: count,
-        emoji: cat.emoji
-      };
-    });
-    
-    return stats;
+  // Удалить место из Firebase
+  async deletePlaceFromFirebase(cityName, placeId) {
+    try {
+      if (!this.firebaseDB || !this.firebaseDB.initialized) {
+        return;
+      }
+      
+      const cityId = this.generateCityId(cityName);
+      const cityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
+      const snapshot = await cityRef.once('value');
+      let cityData = snapshot.val();
+      
+      if (!cityData || !cityData.places) {
+        throw new Error('Город или места не найдены в Firebase');
+      }
+      
+      // Удаляем место
+      let placeToDelete = null;
+      
+      if (cityData.places[placeId]) {
+        // Если places - объект
+        placeToDelete = cityData.places[placeId];
+        delete cityData.places[placeId];
+      } else if (Array.isArray(cityData.places)) {
+        // Если places - массив
+        const placeIndex = cityData.places.findIndex(p => p.id === placeId);
+        if (placeIndex !== -1) {
+          placeToDelete = cityData.places[placeIndex];
+          cityData.places.splice(placeIndex, 1);
+        }
+      }
+      
+      if (!placeToDelete) {
+        throw new Error('Место не найдено в Firebase');
+      }
+      
+      cityData.updatedAt = new Date().toISOString();
+      await cityRef.set(cityData);
+      console.log('✅ Место удалено из Firebase');
+      
+      return placeToDelete;
+    } catch (error) {
+      console.error('❌ Ошибка удаления места из Firebase:', error);
+      throw error;
+    }
+  }
+
+  // Удалить место локально
+  async deletePlaceLocal(cityName, placeId) {
+    try {
+      const cityData = await cityManager.getCityData(cityName);
+      
+      if (!cityData || !cityData.places) {
+        console.error('❌ Город или места не найдены');
+        return null;
+      }
+      
+      const placeIndex = cityData.places.findIndex(p => p.id === placeId);
+      
+      if (placeIndex === -1) {
+        console.error('❌ Место не найдено');
+        return null;
+      }
+      
+      const placeToDelete = cityData.places[placeIndex];
+      cityData.places.splice(placeIndex, 1);
+      cityData.updatedAt = new Date().toISOString();
+      
+      await cityManager.saveCityData(cityName, cityData);
+      console.log('✅ Место удалено локально');
+      
+      return placeToDelete;
+    } catch (error) {
+      console.error('❌ Ошибка удаления места локально:', error);
+      return null;
+    }
+  }
+
+  // Вспомогательный метод: генерация ID города для Firebase
+  generateCityId(cityName) {
+    return cityName
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
   }
 }
 

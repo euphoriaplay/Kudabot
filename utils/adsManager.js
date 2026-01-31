@@ -1,5 +1,6 @@
 const fs = require('fs').promises;
 const path = require('path');
+const firebaseDB = require('./firebaseDatabase');
 
 class AdsManager {
   constructor() {
@@ -12,6 +13,7 @@ class AdsManager {
   // Инициализировать Firebase
   setFirebaseDB(firebaseDB) {
     this.firebaseDB = firebaseDB;
+    console.log('✅ Firebase Database подключена к AdsManager');
   }
 
   async ensureDataDirectory() {
@@ -25,7 +27,7 @@ class AdsManager {
     try {
       await fs.access(this.adsFilePath);
     } catch {
-      await this.saveAds([]);
+      await this.saveAdsToLocal([]);
     }
     
     try {
@@ -35,33 +37,44 @@ class AdsManager {
     }
   }
 
+  // 🔥 ПРИОРИТЕТ FIREBASE: Загрузка рекламы
   async loadAds() {
     try {
-      // Попытка 1: Firebase
+      // ✅ ПРИОРИТЕТ 1: Firebase
       if (this.firebaseDB && this.firebaseDB.initialized) {
-        try {
-          console.log('📡 Получаю рекламу из Firebase...');
-          const firebaseAds = await this.firebaseDB.getAllAds();
-          if (firebaseAds && firebaseAds.length > 0) {
-            console.log(`✅ Загружено ${firebaseAds.length} рекламы из Firebase`);
-            return firebaseAds;
-          }
-        } catch (fbError) {
-          console.warn('⚠️ Firebase недоступен, используем локальный JSON');
+        console.log('🔥 [ПРИОРИТЕТ] Получаю рекламу из Firebase...');
+        const firebaseAds = await this.firebaseDB.getAllAds();
+        
+        if (firebaseAds && firebaseAds.length > 0) {
+          console.log(`✅ [FIREBASE] Загружено ${firebaseAds.length} рекламы`);
+          return firebaseAds;
         }
+        
+        console.log('📭 Firebase пуст, проверяю локальный файл...');
+      } else {
+        console.warn('⚠️ Firebase не инициализирован, используется локальный файл');
       }
       
-      // Попытка 2: локальный JSON
+      // ⚠️ FALLBACK: локальный JSON (только если Firebase недоступен или пуст)
       console.log('📁 Получаю рекламу из локального файла...');
       const data = await fs.readFile(this.adsFilePath, 'utf8');
-      return JSON.parse(data);
+      const localAds = JSON.parse(data);
+      
+      // 🔥 Синхронизируем локальные данные в Firebase (если он доступен)
+      if (this.firebaseDB && this.firebaseDB.initialized && localAds.length > 0) {
+        console.log('🔄 Синхронизирую локальную рекламу в Firebase...');
+        await this.firebaseDB.syncAdsToFirebase(localAds);
+      }
+      
+      return localAds;
     } catch (error) {
-      console.error('Ошибка загрузки рекламы:', error);
+      console.error('❌ Ошибка загрузки рекламы:', error);
       return [];
     }
   }
 
-  async saveAds(ads) {
+  // Сохранение в локальный файл (используется как резервная копия)
+  async saveAdsToLocal(ads) {
     try {
       await fs.writeFile(
         this.adsFilePath,
@@ -70,7 +83,7 @@ class AdsManager {
       );
       return { success: true };
     } catch (error) {
-      console.error('Ошибка сохранения рекламы:', error);
+      console.error('❌ Ошибка сохранения рекламы в локальный файл:', error);
       return { success: false, error: error.message };
     }
   }
@@ -124,10 +137,9 @@ class AdsManager {
     return ad;
   }
 
+  // 🔥 ПРИОРИТЕТ FIREBASE: Добавление рекламы
   async addAd(adData) {
     try {
-      const ads = await this.loadAds();
-      
       const newAd = {
         id: this.generateId(),
         text: adData.text,
@@ -136,12 +148,37 @@ class AdsManager {
         views: 0
       };
       
+      // ✅ ПРИОРИТЕТ 1: Сохраняем в Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Сохраняю рекламу в Firebase...');
+        const firebaseResult = await this.firebaseDB.saveAd(newAd.id, newAd);
+        
+        if (firebaseResult && firebaseResult.success) {
+          console.log('✅ [FIREBASE] Реклама сохранена');
+          
+          // Обновляем локальный файл как резервную копию
+          const ads = await this.loadAds();
+          ads.push(newAd);
+          await this.saveAdsToLocal(ads);
+          
+          return { 
+            success: true, 
+            message: 'Реклама успешно добавлена!',
+            ad: newAd
+          };
+        }
+      }
+      
+      // ⚠️ FALLBACK: Сохраняем только локально
+      console.warn('⚠️ Firebase недоступен, сохраняю только локально');
+      const data = await fs.readFile(this.adsFilePath, 'utf8');
+      const ads = JSON.parse(data);
       ads.push(newAd);
-      await this.saveAds(ads);
+      await this.saveAdsToLocal(ads);
       
       return { 
         success: true, 
-        message: 'Реклама успешно добавлена!',
+        message: 'Реклама сохранена локально (Firebase недоступен)',
         ad: newAd
       };
     } catch (error) {
@@ -152,6 +189,7 @@ class AdsManager {
     }
   }
 
+  // 🔥 ПРИОРИТЕТ FIREBASE: Обновление рекламы
   async updateAd(adId, updateData) {
     try {
       const ads = await this.loadAds();
@@ -164,18 +202,41 @@ class AdsManager {
         };
       }
       
-      ads[adIndex] = {
+      const updatedAd = {
         ...ads[adIndex],
         ...updateData,
         updated_at: new Date().toISOString()
       };
       
-      await this.saveAds(ads);
+      // ✅ ПРИОРИТЕТ 1: Обновляем в Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Обновляю рекламу в Firebase...');
+        const firebaseResult = await this.firebaseDB.saveAd(adId, updatedAd);
+        
+        if (firebaseResult && firebaseResult.success) {
+          console.log('✅ [FIREBASE] Реклама обновлена');
+          
+          // Обновляем локальный файл как резервную копию
+          ads[adIndex] = updatedAd;
+          await this.saveAdsToLocal(ads);
+          
+          return { 
+            success: true, 
+            message: 'Реклама успешно обновлена!',
+            ad: updatedAd
+          };
+        }
+      }
+      
+      // ⚠️ FALLBACK: Обновляем только локально
+      console.warn('⚠️ Firebase недоступен, обновляю только локально');
+      ads[adIndex] = updatedAd;
+      await this.saveAdsToLocal(ads);
       
       return { 
         success: true, 
-        message: 'Реклама успешно обновлена!',
-        ad: ads[adIndex]
+        message: 'Реклама обновлена локально (Firebase недоступен)',
+        ad: updatedAd
       };
     } catch (error) {
       return { 
@@ -185,9 +246,33 @@ class AdsManager {
     }
   }
 
+  // 🔥 ПРИОРИТЕТ FIREBASE: Удаление рекламы
   async deleteAd(adId) {
     try {
-      const ads = await this.loadAds();
+      // ✅ ПРИОРИТЕТ 1: Удаляем из Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Удаляю рекламу из Firebase...');
+        const firebaseResult = await this.firebaseDB.deleteAd(adId);
+        
+        if (firebaseResult && firebaseResult.success) {
+          console.log('✅ [FIREBASE] Реклама удалена');
+          
+          // Удаляем из локального файла как резервной копии
+          const ads = await this.loadAds();
+          const filteredAds = ads.filter(ad => ad.id !== adId);
+          await this.saveAdsToLocal(filteredAds);
+          
+          return { 
+            success: true, 
+            message: 'Реклама успешно удалена!' 
+          };
+        }
+      }
+      
+      // ⚠️ FALLBACK: Удаляем только локально
+      console.warn('⚠️ Firebase недоступен, удаляю только локально');
+      const data = await fs.readFile(this.adsFilePath, 'utf8');
+      const ads = JSON.parse(data);
       const filteredAds = ads.filter(ad => ad.id !== adId);
       
       if (filteredAds.length === ads.length) {
@@ -197,11 +282,11 @@ class AdsManager {
         };
       }
       
-      await this.saveAds(filteredAds);
+      await this.saveAdsToLocal(filteredAds);
       
       return { 
         success: true, 
-        message: 'Реклама успешно удалена!' 
+        message: 'Реклама удалена локально (Firebase недоступен)' 
       };
     } catch (error) {
       return { 
@@ -220,13 +305,25 @@ class AdsManager {
     return await this.loadAds();
   }
 
+  // 🔥 ПРИОРИТЕТ FIREBASE: Увеличение просмотров
   async incrementViews(adId) {
-    const ads = await this.loadAds();
-    const ad = ads.find(a => a.id === adId);
-    
-    if (ad) {
-      ad.views = (ad.views || 0) + 1;
-      await this.saveAds(ads);
+    try {
+      const ads = await this.loadAds();
+      const ad = ads.find(a => a.id === adId);
+      
+      if (ad) {
+        ad.views = (ad.views || 0) + 1;
+        
+        // ✅ ПРИОРИТЕТ 1: Обновляем в Firebase
+        if (this.firebaseDB && this.firebaseDB.initialized) {
+          await this.firebaseDB.saveAd(adId, ad);
+        }
+        
+        // Обновляем локальный файл
+        await this.saveAdsToLocal(ads);
+      }
+    } catch (error) {
+      console.error('Ошибка при увеличении просмотров:', error);
     }
   }
 

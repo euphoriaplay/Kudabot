@@ -1,3 +1,5 @@
+const firebaseDB = require('./firebaseDatabase');
+
 class CategoryManager {
   
     getCityManager() {
@@ -18,9 +20,49 @@ class CategoryManager {
     }
   }
   
-  constructor() {
+constructor() {
     this.firebaseDB = null;
-    this.defaultCategories = [];
+    // 📌 ОБНОВЛЕННЫЕ КАТЕГОРИИ ИЗ СПИСКА
+    this.defaultCategories = [
+      { id: 1, name: 'Английская', emoji: '🇬🇧', icon: '🇬🇧' },
+      { id: 2, name: 'Бабл чай', emoji: '🧋', icon: '🧋' },
+      { id: 3, name: 'Бар', emoji: '🍸', icon: '🍸' },
+      { id: 4, name: 'Бургеры', emoji: '🍔', icon: '🍔' },
+      { id: 5, name: 'Вьетнамская', emoji: '🇻🇳', icon: '🇻🇳' },
+      { id: 6, name: 'Гриль', emoji: '🔥', icon: '🔥' },
+     
+      { id: 8, name: 'Домашняя', emoji: '🏠', icon: '🏠' },
+      { id: 9, name: 'За городом', emoji: '🌲', icon: '🌲' },
+      { id: 10, name: 'Караоке', emoji: '🎤', icon: '🎤' },
+      { id: 11, name: 'Кальян', emoji: '💨', icon: '💨' },
+      { id: 12, name: 'Компы', emoji: '💻', icon: '💻' }, // Если имеются в виду компьютеры/киберкафе
+      { id: 13, name: 'Мороженое', emoji: '🍦', icon: '🍦' },
+      { id: 14, name: 'Морепродукты', emoji: '🦞', icon: '🦞' },
+      { id: 15, name: 'Польская', emoji: '🇵🇱', icon: '🇵🇱' },
+      { id: 16, name: 'Пельмени', emoji: '🥟', icon: '🥟' },
+      { id: 17, name: 'Рамен', emoji: '🍜', icon: '🍜' },
+      { id: 18, name: 'Стейки', emoji: '🥩', icon: '🥩' },
+      { id: 19, name: 'Украинская', emoji: '🇺🇦', icon: '🇺🇦' },
+      { id: 20, name: 'Американская', emoji: '🇺🇸', icon: '🇺🇸' },
+      { id: 21, name: 'Бранчи', emoji: '🥞', icon: '🥞' },
+      { id: 22, name: 'Блины', emoji: '🥞', icon: '🥞' },
+      { id: 23, name: 'Вино', emoji: '🍷', icon: '🍷' },
+      { id: 24, name: 'Восточная', emoji: '🕌', icon: '🕌' },
+      { id: 25, name: 'Грузинская', emoji: '🇬🇪', icon: '🇬🇪' },
+      { id: 26, name: 'Десерты', emoji: '🍰', icon: '🍰' },
+      { id: 27, name: 'Завтраки', emoji: '🍳', icon: '🍳' },
+      { id: 28, name: 'Итальянская', emoji: '🇮🇹', icon: '🇮🇹' },
+      { id: 29, name: 'Кофе', emoji: '☕', icon: '☕' },
+      { id: 30, name: 'Китайская', emoji: '🇨🇳', icon: '🇨🇳' },
+      { id: 31, name: 'Кебаб', emoji: '🥙', icon: '🥙' }, // Предположительно кебаб
+      { id: 32, name: 'Мишлен гид', emoji: '⭐', icon: '⭐' },
+      { id: 33, name: 'Ночные', emoji: '🌃', icon: '🌃' },
+      { id: 34, name: 'Пиво', emoji: '🍺', icon: '🍺' },
+      { id: 35, name: 'Пицца', emoji: '🍕', icon: '🍕' },
+      { id: 36, name: 'Суши', emoji: '🍣', icon: '🍣' },
+      { id: 37, name: 'Узбекская', emoji: '🇺🇿', icon: '🇺🇿' },
+      { id: 38, name: 'Фуд-корт', emoji: '🍴', icon: '🍴' }
+    ];
   }
 
   // Инициализировать Firebase
@@ -31,39 +73,54 @@ class CategoryManager {
 
   // ============ МЕТОДЫ ЧТЕНИЯ ============
 
-  // Получить все категории ТОЛЬКО из Firebase
- async getAllCategories() {
-  try {
-    // Проверяем Firebase
-    if (!this.firebaseDB || !this.firebaseDB.initialized) {
-      console.warn('⚠️ Firebase не инициализирован, возвращаем стандартные категории');
+  // 🔥 ПРИОРИТЕТ FIREBASE: Получить все категории
+  async getAllCategories() {
+    try {
+      // ✅ ПРИОРИТЕТ 1: Firebase
+      if (this.firebaseDB && this.firebaseDB.initialized) {
+        console.log('🔥 [ПРИОРИТЕТ] Получаю категории из Firebase...');
+        
+        const firebaseCategories = await this.firebaseDB.getAllCategories();
+        console.log('📊 Категории из Firebase:', firebaseCategories);
+        
+        if (firebaseCategories && firebaseCategories.length > 0) {
+          console.log(`✅ [FIREBASE] Загружено ${firebaseCategories.length} категорий`);
+          return firebaseCategories;
+        }
+        
+        // Если Firebase пуст, добавляем стандартные категории
+        console.log('📭 Firebase пуст, добавляю стандартные категории...');
+        await this.initializeDefaultCategories();
+        return this.defaultCategories;
+      }
+      
+      // ⚠️ FALLBACK: Стандартные категории
+      console.warn('⚠️ Firebase не инициализирован, используются стандартные категории');
+      return this.defaultCategories;
+      
+    } catch (error) {
+      console.error('❌ Ошибка при загрузке категорий:', error.message);
       return this.defaultCategories;
     }
+  }
+  
+  // Инициализировать стандартные категории в Firebase
+  async initializeDefaultCategories() {
+    if (!this.firebaseDB || !this.firebaseDB.initialized) return;
     
-    console.log('📡 Получаю категории из Firebase Realtime Database...');
-    const firebaseCategories = await this.firebaseDB.getAllCategories();
+    console.log('🔄 Инициализирую стандартные категории в Firebase...');
     
-    console.log('📊 Категории из Firebase:', firebaseCategories);
-    
-    // Фильтруем пустые или невалидные категории
-    const validCategories = (firebaseCategories || []).filter(cat => 
-      cat && cat.name && typeof cat.name === 'string'
-    );
-    
-    if (validCategories.length > 0) {
-      console.log(`✅ Загружено ${validCategories.length} категорий из Firebase`);
-      return validCategories;
+    for (const category of this.defaultCategories) {
+      try {
+        await this.firebaseDB.saveCategory(category.id.toString(), category);
+      } catch (error) {
+        console.error(`❌ Ошибка сохранения категории ${category.name}:`, error);
+      }
     }
     
-    console.log('📭 Firebase пуст или категории невалидны, возвращаем стандартные категории');
-    return this.defaultCategories;
-    
-  } catch (error) {
-    console.error('❌ Ошибка при загрузке категорий из Firebase:', error.message);
-    console.log('⚠️ Возвращаем стандартные категории');
-    return this.defaultCategories;
+    console.log('✅ Стандартные категории инициализированы в Firebase');
   }
-}
+
 
   // Получить категорию по ID
   async getCategoryById(categoryId) {
@@ -107,19 +164,19 @@ class CategoryManager {
   // ============ МЕТОДЫ ЗАПИСИ (ТОЛЬКО В FIREBASE) ============
 
   // ✅ ДОБАВИТЬ КАТЕГОРИЮ
-async addCategory(name, emoji = '📁') {
-  try {
-    // Проверка Firebase
-    if (!this.firebaseDB || !this.firebaseDB.initialized) {
-      console.log('❌ Firebase не инициализирован. firebaseDB:', this.firebaseDB);
-      return { 
-        success: false, 
-        message: '❌ Firebase не инициализирован. Невозможно сохранить категорию.' 
-      };
-    }
+  async addCategory(name, emoji = '📁') {
+    try {
+      // 🔥 ПРОВЕРКА FIREBASE
+      if (!this.firebaseDB || !this.firebaseDB.initialized) {
+        console.error('❌ Firebase не инициализирован');
+        return { 
+          success: false, 
+          message: '❌ Firebase не инициализирован. Невозможно сохранить категорию.' 
+        };
+      }
 
-    console.log('🔍 [DEBUG addCategory] Методы firebaseDB:', Object.keys(this.firebaseDB));
-    console.log('🔍 [DEBUG addCategory] Есть ли addCategory?:', typeof this.firebaseDB.addCategory);
+      console.log('🔍 [DEBUG addCategory] Методы firebaseDB:', Object.keys(this.firebaseDB));
+      console.log('🔍 [DEBUG addCategory] Есть ли addCategory?:', typeof this.firebaseDB.addCategory);
 
       // Валидация
       if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -161,62 +218,62 @@ async addCategory(name, emoji = '📁') {
         createdAt: new Date().toISOString()
       };
       
-      // ☁️ СОХРАНЯЕМ ТОЛЬКО В FIREBASE
-    console.log('☁️ Сохраняю категорию в Firebase Realtime Database...');
-    console.log('📦 Данные для сохранения:', newCategory);
-    
-    // Пытаемся использовать addCategory, если он есть
-    if (typeof this.firebaseDB.addCategory === 'function') {
-      console.log('✅ Использую метод addCategory');
-      const result = await this.firebaseDB.addCategory(newCategory);
+      // 🔥 СОХРАНЯЕМ В FIREBASE
+      console.log('🔥 [ПРИОРИТЕТ] Сохраняю категорию в Firebase...');
+      console.log('📦 Данные для сохранения:', newCategory);
       
-      if (result && result.success) {
-        console.log(`✅ Категория "${cleanName}" добавлена в Firebase`);
-        return { 
-          success: true, 
-          category: newCategory,
-          message: `Категория "${cleanName}" успешно создана!`
+      // Используем addCategory, если он есть
+      if (typeof this.firebaseDB.addCategory === 'function') {
+        console.log('✅ Использую метод addCategory');
+        const result = await this.firebaseDB.addCategory(newCategory);
+        
+        if (result && result.success) {
+          console.log(`✅ [FIREBASE] Категория "${cleanName}" добавлена`);
+          return { 
+            success: true, 
+            category: newCategory,
+            message: `Категория "${cleanName}" успешно создана!`
+          };
+        }
+      } 
+      // Если addCategory нет, пробуем saveCategory
+      else if (typeof this.firebaseDB.saveCategory === 'function') {
+        console.log('⚠️ addCategory нет, использую saveCategory');
+        const result = await this.firebaseDB.saveCategory(newCategory.id, newCategory);
+        
+        if (result && result.success) {
+          console.log(`✅ [FIREBASE] Категория "${cleanName}" сохранена`);
+          return { 
+            success: true, 
+            category: newCategory,
+            message: `Категория "${cleanName}" успешно создана!`
+          };
+        }
+      } 
+      else {
+        console.error('❌ Нет подходящих методов для сохранения категории в Firebase');
+        return {
+          success: false,
+          message: 'Ошибка: Firebase не поддерживает сохранение категорий'
         };
       }
-    } 
-    // Если addCategory нет, пробуем saveCategory
-    else if (typeof this.firebaseDB.saveCategory === 'function') {
-      console.log('⚠️ addCategory нет, использую saveCategory');
-      const result = await this.firebaseDB.saveCategory(newCategory.id, newCategory);
       
-      if (result && result.success) {
-        console.log(`✅ Категория "${cleanName}" сохранена в Firebase`);
-        return { 
-          success: true, 
-          category: newCategory,
-          message: `Категория "${cleanName}" успешно создана!`
-        };
-      }
-    } 
-    else {
-      console.error('❌ Нет подходящих методов для сохранения категории в Firebase');
-      return {
-        success: false,
-        message: 'Ошибка: Firebase не поддерживает сохранение категорий'
+      // Если дошли сюда, значит что-то пошло не так
+      throw new Error('Неизвестная ошибка Firebase');
+      
+    } catch (error) {
+      console.error('❌ Ошибка при добавлении категории:', error);
+      return { 
+        success: false, 
+        message: `Ошибка: ${error.message}` 
       };
     }
-    
-    // Если дошли сюда, значит что-то пошло не так
-    throw new Error('Неизвестная ошибка Firebase');
-    
-  } catch (error) {
-    console.error('❌ Ошибка при добавлении категории:', error);
-    return { 
-      success: false, 
-      message: `Ошибка: ${error.message}` 
-    };
   }
-}
 
   // ✅ ОБНОВИТЬ КАТЕГОРИЮ
   async updateCategory(categoryId, updateData) {
     try {
-      // Проверка Firebase
+      // 🔥 ПРОВЕРКА FIREBASE
       if (!this.firebaseDB || !this.firebaseDB.initialized) {
         return { 
           success: false, 
@@ -265,12 +322,12 @@ async addCategory(name, emoji = '📁') {
         updatedAt: new Date().toISOString()
       };
       
-      // ☁️ ОБНОВЛЯЕМ В FIREBASE
-      console.log('☁️ Обновляю категорию в Firebase...');
+      // 🔥 ОБНОВЛЯЕМ В FIREBASE
+      console.log('🔥 [ПРИОРИТЕТ] Обновляю категорию в Firebase...');
       const result = await this.firebaseDB.updateCategory(categoryId, updatedCategory);
       
       if (result && result.success) {
-        console.log('✅ Категория обновлена в Firebase');
+        console.log('✅ [FIREBASE] Категория обновлена');
         
         // Обновляем места с этой категорией
         await this.updatePlacesWithCategory(categoryId, updatedCategory);
@@ -294,180 +351,161 @@ async addCategory(name, emoji = '📁') {
   }
 
   // ✅ УДАЛИТЬ КАТЕГОРИЮ
-async deleteCategory(categoryId) {
-  try {
-    // Проверка Firebase
-    if (!this.firebaseDB || !this.firebaseDB.initialized) {
-      return { 
-        success: false, 
-        message: '❌ Firebase не инициализирован' 
-      };
-    }
-
-    const categories = await this.getAllCategories();
-    const category = categories.find(cat => cat.id == categoryId);
-    
-    if (!category) {
-      return { 
-        success: false, 
-        message: 'Категория не найдена' 
-      };
-    }
-
-    if (!category.isCustom) {
-      return { 
-        success: false, 
-        message: 'Стандартные категории удалить нельзя' 
-      };
-    }
-    
-    // 🔧 ИСПОЛЬЗУЕМ ПРАВИЛЬНЫЕ МЕНЕДЖЕРЫ
-    const cityManager = this.getCityManager();
-    const placeManager = this.getPlaceManager();
-    
-    if (!cityManager || !placeManager) {
-      return {
-        success: false,
-        message: '❌ Ошибка загрузки менеджеров данных'
-      };
-    }
-    
-    const cities = await cityManager.getAllCities();
-    let placesCount = 0;
-    
-    // 🔍 ПРОВЕРЯЕМ МЕТОДЫ placeManager
-    console.log('🔍 Проверка методов placeManager:');
-    console.log('  - getPlacesByCity:', typeof placeManager.getPlacesByCity);
-    console.log('  - updatePlace:', typeof placeManager.updatePlace);
-    console.log('  - getPlacesByCategory:', typeof placeManager.getPlacesByCategory);
-    
-    // 🔄 АЛЬТЕРНАТИВНЫЙ СПОСОБ: Используем методы из placeManager
-    for (const city of cities) {
-      try {
-        // Используем placeManager вместо cityManager
-        const places = await placeManager.getPlacesByCity(city);
-        const categoryPlaces = places.filter(p => p.category_id == categoryId);
-        placesCount += categoryPlaces.length;
-      } catch (error) {
-        console.error(`❌ Ошибка при получении мест для города ${city}:`, error.message);
+  async deleteCategory(categoryId) {
+    try {
+      // 🔥 ПРОВЕРКА FIREBASE
+      if (!this.firebaseDB || !this.firebaseDB.initialized) {
+        return { 
+          success: false, 
+          message: '❌ Firebase не инициализирован' 
+        };
       }
-    }
-    
-    // Переводим места в категорию "Другое"
-    if (placesCount > 0) {
-      const otherCategory = categories.find(cat => cat.name === 'Другое');
-      const otherCat = otherCategory || this.defaultCategories.find(cat => cat.name === 'Другое');
+
+      const categories = await this.getAllCategories();
+      const category = categories.find(cat => cat.id == categoryId);
       
-      if (otherCat) {
-        console.log(`🔄 Перевод ${placesCount} мест в категорию "Другое"...`);
+      if (!category) {
+        return { 
+          success: false, 
+          message: 'Категория не найдена' 
+        };
+      }
+
+      if (!category.isCustom) {
+        return { 
+          success: false, 
+          message: 'Стандартные категории удалить нельзя' 
+        };
+      }
+      
+      // 🔧 ИСПОЛЬЗУЕМ ПРАВИЛЬНЫЕ МЕНЕДЖЕРЫ
+      const cityManager = this.getCityManager();
+      const placeManager = this.getPlaceManager();
+      
+      if (!cityManager || !placeManager) {
+        return {
+          success: false,
+          message: '❌ Ошибка загрузки менеджеров данных'
+        };
+      }
+      
+      const cities = await cityManager.getAllCities();
+      let placesCount = 0;
+      
+      // Подсчитываем места с этой категорией
+      for (const city of cities) {
+        try {
+          const places = await placeManager.getPlacesByCity(city);
+          const categoryPlaces = places.filter(p => p.category_id == categoryId);
+          placesCount += categoryPlaces.length;
+        } catch (error) {
+          console.error(`❌ Ошибка при получении мест для города ${city}:`, error.message);
+        }
+      }
+      
+      // Переводим места в категорию "Другое"
+      if (placesCount > 0) {
+        const otherCategory = categories.find(cat => cat.name === 'Другое');
+        const otherCat = otherCategory || this.defaultCategories.find(cat => cat.name === 'Другое');
         
-        for (const city of cities) {
-          try {
-            const places = await placeManager.getPlacesByCity(city);
-            
-            for (const place of places) {
-              if (place.category_id == categoryId) {
-                // 🔧 Используем placeManager.updatePlace()
-                console.log(`   Обновляю место "${place.name}" в городе ${city}`);
-                
-                await placeManager.updatePlace(city, place.id, {
-                  category_id: otherCat.id,
-                  category_name: otherCat.name,
-                  category_emoji: otherCat.emoji
-                });
+        if (otherCat) {
+          console.log(`🔄 Перевод ${placesCount} мест в категорию "Другое"...`);
+          
+          for (const city of cities) {
+            try {
+              const places = await placeManager.getPlacesByCity(city);
+              
+              for (const place of places) {
+                if (place.category_id == categoryId) {
+                  console.log(`   Обновляю место "${place.name}" в городе ${city}`);
+                  
+                  await placeManager.updatePlace(city, place.id, {
+                    category_id: otherCat.id,
+                    category_name: otherCat.name,
+                    category_emoji: otherCat.emoji
+                  });
+                }
               }
+            } catch (error) {
+              console.error(`❌ Ошибка при обновлении мест в городе ${city}:`, error.message);
             }
-          } catch (error) {
-            console.error(`❌ Ошибка при обновлении мест в городе ${city}:`, error.message);
           }
         }
       }
-    }
-    
-    // ☁️ УДАЛЯЕМ ИЗ FIREBASE
-    console.log('☁️ Удаляю категорию из Firebase...');
-    
-    // 🔧 Используем правильный метод firebaseDB
-    let result;
-    if (typeof this.firebaseDB.deleteCategory === 'function') {
-      result = await this.firebaseDB.deleteCategory(categoryId);
-    } else {
-      console.error('❌ Метод deleteCategory не найден в firebaseDB');
-      return {
-        success: false,
-        message: 'Ошибка: метод удаления категории не поддерживается'
-      };
-    }
-    
-    if (result && result.success) {
-      console.log('✅ Категория удалена из Firebase');
       
-      let message = `Категория "${category.emoji} ${category.name}" успешно удалена.`;
-      if (placesCount > 0) {
-        message += ` ${placesCount} мест переведены в категорию "Другое".`;
+      // 🔥 УДАЛЯЕМ ИЗ FIREBASE
+      console.log('🔥 [ПРИОРИТЕТ] Удаляю категорию из Firebase...');
+      
+      const result = await this.firebaseDB.deleteCategory(categoryId);
+      
+      if (result && result.success) {
+        console.log('✅ [FIREBASE] Категория удалена');
+        
+        let message = `Категория "${category.emoji} ${category.name}" успешно удалена.`;
+        if (placesCount > 0) {
+          message += ` ${placesCount} мест переведены в категорию "Другое".`;
+        }
+        
+        return { 
+          success: true, 
+          message: message
+        };
+      } else {
+        throw new Error(result?.message || 'Ошибка удаления из Firebase');
       }
       
+    } catch (error) {
+      console.error('❌ Ошибка при удалении категории:', error);
       return { 
-        success: true, 
-        message: message
+        success: false, 
+        message: `Ошибка: ${error.message}` 
       };
-    } else {
-      throw new Error(result?.message || 'Ошибка удаления из Firebase');
     }
-    
-  } catch (error) {
-    console.error('❌ Ошибка при удалении категории:', error);
-    return { 
-      success: false, 
-      message: `Ошибка: ${error.message}` 
-    };
   }
-}
 
   // ============ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ============
 
   // Обновить места с категорией
- async updatePlacesWithCategory(categoryId, updatedCategory) {
-  try {
-    const cityManager = this.getCityManager();
-    const placeManager = this.getPlaceManager();
-    
-    if (!cityManager || !placeManager) {
-      console.error('❌ Не удалось загрузить менеджеры данных');
+  async updatePlacesWithCategory(categoryId, updatedCategory) {
+    try {
+      const cityManager = this.getCityManager();
+      const placeManager = this.getPlaceManager();
+      
+      if (!cityManager || !placeManager) {
+        console.error('❌ Не удалось загрузить менеджеры данных');
+        return 0;
+      }
+      
+      const cities = await cityManager.getAllCities();
+      let updatedCount = 0;
+      
+      for (const city of cities) {
+        try {
+          const places = await placeManager.getPlacesByCity(city);
+          
+          for (const place of places) {
+            if (place.category_id == categoryId) {
+              await placeManager.updatePlace(city, place.id, {
+                category_name: updatedCategory.name,
+                category_emoji: updatedCategory.emoji
+              });
+              updatedCount++;
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Ошибка при обновлении мест в городе ${city}:`, error);
+        }
+      }
+      
+      console.log(`✅ Обновлено ${updatedCount} мест с категорией ID: ${categoryId}`);
+      return updatedCount;
+      
+    } catch (error) {
+      console.error('Ошибка при обновлении мест:', error);
       return 0;
     }
-    
-    const cities = await cityManager.getAllCities();
-    let updatedCount = 0;
-    
-    for (const city of cities) {
-      try {
-        // Используем placeManager для получения мест
-        const places = await placeManager.getPlacesByCity(city);
-        
-        for (const place of places) {
-          if (place.category_id == categoryId) {
-            // Используем placeManager для обновления
-            await placeManager.updatePlace(city, place.id, {
-              category_name: updatedCategory.name,
-              category_emoji: updatedCategory.emoji
-            });
-            updatedCount++;
-          }
-        }
-      } catch (error) {
-        console.error(`❌ Ошибка при обновлении мест в городе ${city}:`, error);
-      }
-    }
-    
-    console.log(`✅ Обновлено ${updatedCount} мест с категорией ID: ${categoryId}`);
-    return updatedCount;
-    
-  } catch (error) {
-    console.error('Ошибка при обновлении мест:', error);
-    return 0;
   }
-}
+
   // Поиск категорий
   async searchCategories(query) {
     try {

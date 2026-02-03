@@ -160,63 +160,63 @@ setTimeout(async () => {
   }
 
     // 🔥 ТРЕТЬЕ ИЗМЕНЕНИЕ: Обновляем методы работы с городами для Firebase-first
-  async getCityKey(cityName) {
-    console.log(`🔑 [getCityKey] Начинаю обработку: "${cityName}"`);
+  // async getCityKey(cityName) {
+  //   console.log(`🔑 [getCityKey] Начинаю обработку: "${cityName}"`);
     
-    if (!cityName || typeof cityName !== 'string') {
-      console.warn('⚠️ [getCityKey] Неверное название города:', cityName);
-      return 'unknown';
-    }
+  //   if (!cityName || typeof cityName !== 'string') {
+  //     console.warn('⚠️ [getCityKey] Неверное название города:', cityName);
+  //     return 'unknown';
+  //   }
     
-    console.log(`🔍 [DEBUG getCityKey] Входное значение: "${cityName}"`);
+  //   console.log(`🔍 [DEBUG getCityKey] Входное значение: "${cityName}"`);
     
-    const cleaned = cityName.trim();
-    if (cleaned.length === 0) {
-      return 'unknown';
-    }
+  //   const cleaned = cityName.trim();
+  //   if (cleaned.length === 0) {
+  //     return 'unknown';
+  //   }
     
-    // Используем метод генерации ID из Firebase
-    if (this.firebaseDB && this.firebaseDB.generateCityId) {
-      return this.firebaseDB.generateCityId(cleaned);
-    }
+  //   // Используем метод генерации ID из Firebase
+  //   if (this.firebaseDB && this.firebaseDB.generateCityId) {
+  //     return this.firebaseDB.generateCityId(cleaned);
+  //   }
     
-    // Fallback на старую логику
-    const translitMap = {
-      'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
-      'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
-      'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n',
-      'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
-      'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
-      'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
-      'э': 'e', 'ю': 'yu', 'я': 'ya',
-      ' ': '_', '-': '_', ',': '', '.': '', '!': '', '?': '',
-      '(': '', ')': '', '[': '', ']': '', '{': '', '}': '',
-      ':': '_', ';': '_'
-    };
+  //   // Fallback на старую логику
+  //   const translitMap = {
+  //     'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
+  //     'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
+  //     'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n',
+  //     'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
+  //     'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
+  //     'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
+  //     'э': 'e', 'ю': 'yu', 'я': 'ya',
+  //     ' ': '_', '-': '_', ',': '', '.': '', '!': '', '?': '',
+  //     '(': '', ')': '', '[': '', ']': '', '{': '', '}': '',
+  //     ':': '_', ';': '_'
+  //   };
     
-    let key = '';
-    for (let i = 0; i < cleaned.length; i++) {
-      const char = cleaned[i].toLowerCase();
-      if (translitMap[char] !== undefined) {
-        key += translitMap[char];
-      } else if (char.match(/[a-z0-9]/)) {
-        key += char;
-      } else {
-        key += '_';
-      }
-    }
+  //   let key = '';
+  //   for (let i = 0; i < cleaned.length; i++) {
+  //     const char = cleaned[i].toLowerCase();
+  //     if (translitMap[char] !== undefined) {
+  //       key += translitMap[char];
+  //     } else if (char.match(/[a-z0-9]/)) {
+  //       key += char;
+  //     } else {
+  //       key += '_';
+  //     }
+  //   }
     
-    key = key.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  //   key = key.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
     
-    if (key.length === 0) {
-      key = 'city_' + cleaned.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 10);
-    }
+  //   if (key.length === 0) {
+  //     key = 'city_' + cleaned.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 10);
+  //   }
     
-    const result = key.substring(0, 30);
-    console.log(`🔍 [DEBUG getCityKey] Результат: "${result}"`);
+  //   const result = key.substring(0, 30);
+  //   console.log(`🔍 [DEBUG getCityKey] Результат: "${result}"`);
     
-    return result;
-  }
+  //   return result;
+  // }
 
 async syncLocalDataToFirebase() {
   try {
@@ -272,22 +272,13 @@ getCityKey(cityName) {
     console.warn('⚠️ [getCityKey] Неверное название города:', cityName);
     return 'unknown';
   }
-  
-  // Используем Firebase для генерации ключа, если доступно
-  if (this.firebaseDB && this.firebaseDB.generateCityId) {
-    const key = this.firebaseDB.generateCityId(cityName);
-    console.log(`🔑 [getCityKey] Сгенерирован Firebase ключ: "${key}"`);
-    return key;
-  }
-  
-  // Fallback на старую логику
-  console.log(`🔍 [DEBUG getCityKey] Входное значение: "${cityName}"`);
-  
+    
   const cleaned = cityName.trim();
   if (cleaned.length === 0) {
     return 'unknown';
   }
   
+  // Простая транслитерация для русских букв
   const translitMap = {
     'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
     'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
@@ -296,31 +287,50 @@ getCityKey(cityName) {
     'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
     'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
     'э': 'e', 'ю': 'yu', 'я': 'ya',
-    ' ': '_', '-': '_', ',': '', '.': '', '!': '', '?': '',
+    // ✅ ДОБАВЬТЕ БОЛЬШИЕ БУКВЫ
+    'А': 'a', 'Б': 'b', 'В': 'v', 'Г': 'g', 'Д': 'd',
+    'Е': 'e', 'Ё': 'e', 'Ж': 'zh', 'З': 'z', 'И': 'i',
+    'Й': 'y', 'К': 'k', 'Л': 'l', 'М': 'm', 'Н': 'n',
+    'О': 'o', 'П': 'p', 'Р': 'r', 'С': 's', 'Т': 't',
+    'У': 'u', 'Ф': 'f', 'Х': 'h', 'Ц': 'ts', 'Ч': 'ch',
+    'Ш': 'sh', 'Щ': 'sch', 'Ъ': '', 'Ы': 'y', 'Ь': '',
+    'Э': 'e', 'Ю': 'yu', 'Я': 'ya',
+    ' ': '_', '-': '_', ',': '', '.': '_', '!': '', '?': '',
     '(': '', ')': '', '[': '', ']': '', '{': '', '}': '',
     ':': '_', ';': '_'
   };
   
   let key = '';
   for (let i = 0; i < cleaned.length; i++) {
-    const char = cleaned[i].toLowerCase();
+    const char = cleaned[i];
+    const lowerChar = char.toLowerCase();
+    
     if (translitMap[char] !== undefined) {
       key += translitMap[char];
-    } else if (char.match(/[a-z0-9]/)) {
-      key += char;
+    } else if (translitMap[lowerChar] !== undefined) {
+      key += translitMap[lowerChar];
+    } else if (char.match(/[a-zA-Z0-9]/)) {
+      key += lowerChar;
     } else {
       key += '_';
     }
   }
   
-  key = key.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  // Убираем множественные подчеркивания
+  key = key.replace(/_+/g, '_');
   
+  // Убираем подчеркивания в начале и конце
+  key = key.replace(/^_+|_+$/g, '');
+  
+  // Если пусто - создаем простой ключ
   if (key.length === 0) {
-    key = 'city_' + cleaned.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 10);
+    console.warn(`⚠️ [getCityKey] Получился пустой ключ для "${cityName}"`);
+    key = 'city_' + Date.now();
   }
   
-  const result = key.substring(0, 30);
-  console.log(`🔍 [DEBUG getCityKey] Fallback результат: "${result}"`);
+  // Ограничиваем длину
+  const result = key.substring(0, 50);
+  console.log(`🔑 [getCityKey] Результат для "${cityName}": "${result}"`);
   
   return result;
 }
@@ -4563,43 +4573,69 @@ async showAllCategories(chatId) {
     );
   }
 
-  async showAdminCityList(chatId) {
-    const cities = await cityManager.getAllCities();
+async showAdminCityList(chatId) {
+  const cities = await cityManager.getAllCities();
+  
+  if (cities.length === 0) {
+    await this.sendAdminMessage(chatId, '📭 Список городов пуст.');
+    return;
+  }
+  
+  let message = '📋 *Список городов:*\n\n';
+  
+  for (const city of cities) {
+    console.log(`🔍 [showAdminCityList] Обрабатываю город: "${city}"`);
     
-    if (cities.length === 0) {
-      await this.sendAdminMessage(chatId, '📭 Список городов пуст.');
-      return;
+    // ✅ ИСПРАВЛЕНИЕ: Убедитесь что city не undefined
+    if (!city || typeof city !== 'string') {
+      console.warn(`⚠️ [showAdminCityList] Пропускаю некорректный город:`, city);
+      continue;
     }
     
-    let message = '📋 *Список городов:*\n\n';
-    
-    for (const city of cities) {
+    try {
       const cityData = await cityManager.getCityData(city);
+      
+      if (!cityData) {
+        console.warn(`⚠️ Данные города "${city}" не найдены`);
+        message += `🏙️ *${city}*\n`;
+        message += `├ Мест: 0\n`;
+        message += `└ Файл: \`${fileManager.generateCityFileName(city)}\` (не найден)\n\n`;
+        continue;
+      }
+      
       const placeCount = cityData.places ? cityData.places.length : 0;
+      const fileName = fileManager.generateCityFileName(city);
+      
       message += `🏙️ *${city}*\n`;
       message += `├ Мест: ${placeCount}\n`;
-      message += `└ Файл: \`${fileManager.generateCityFileName(city)}\`\n\n`;
+      message += `└ Файл: \`${fileName}\`\n\n`;
+      
+    } catch (error) {
+      console.error(`❌ Ошибка обработки города "${city}":`, error);
+      message += `🏙️ *${city}*\n`;
+      message += `├ Ошибка загрузки данных\n`;
+      message += `└ ${error.message}\n\n`;
     }
-    
-    const inlineKeyboard = {
-      inline_keyboard: [
-        [
-          { text: '➕ Добавить город', callback_data: 'admin_action:add_city' },
-          { text: '🗑️ Удалить город', callback_data: 'admin_action:remove_city' }
-        ],
-        [
-          { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' },
-          { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-        ]
-      ]
-    };
-    
-    await this.sendAdminMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: inlineKeyboard
-    });
   }
-
+  
+  const inlineKeyboard = {
+    inline_keyboard: [
+      [
+        { text: '➕ Добавить город', callback_data: 'admin_action:add_city' },
+        { text: '🗑️ Удалить город', callback_data: 'admin_action:remove_city' }
+      ],
+      [
+        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' },
+        { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
+      ]
+    ]
+  };
+  
+  await this.sendAdminMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: inlineKeyboard
+  });
+}
   async startAddPlace(chatId, cityName = null) {
     console.log(`🔍 [DEBUG startAddPlace] Called with cityName:`, { cityName });
     

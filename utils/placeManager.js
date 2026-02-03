@@ -342,34 +342,49 @@ async getPlacesByCityLocal(cityName) {
   }
 
   // Сохранить место в Firebase
-  async savePlaceToFirebase(cityName, placeData) {
-    try {
-      if (!this.firebaseDB || !this.firebaseDB.initialized) {
-        return;
-      }
-      
-      const cityId = this.generateCityId(cityName);
-      const cityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
-      const snapshot = await cityRef.once('value');
-      let cityData = snapshot.val() || { name: cityName, places: [] };
-      
-      // Убедимся, что places - объект (Firebase лучше работает с объектами)
-      if (!cityData.places || typeof cityData.places !== 'object') {
-        cityData.places = {};
-      }
-      
-      // Добавляем/обновляем место
-      cityData.places[placeData.id] = placeData;
-      cityData.updatedAt = new Date().toISOString();
-      
-      await cityRef.set(cityData);
-      console.log(`✅ Место сохранено в Firebase в городе ${cityName}`);
-    } catch (error) {
-      console.error('❌ Ошибка сохранения места в Firebase:', error);
-      throw error;
+ async savePlaceToFirebase(cityName, placeData) {
+  try {
+    if (!this.firebaseDB || !this.firebaseDB.initialized) {
+      return;
     }
+    
+    const cityId = this.generateCityId(cityName);
+    console.log(`🔥 [savePlaceToFirebase] cityName: "${cityName}", cityId: "${cityId}"`);
+    
+    // ✅ ПРАВИЛЬНЫЙ ПУТЬ: cities/{cityId}/places/{placeId}
+    const cityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
+    const snapshot = await cityRef.once('value');
+    let cityData = snapshot.val();
+    
+    if (!cityData) {
+      console.log(`⚠️ Город "${cityName}" не найден в Firebase, создаю...`);
+      cityData = {
+        name: cityName,
+        places: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+    }
+    
+    // Убедимся, что places - объект
+    if (!cityData.places || typeof cityData.places !== 'object') {
+      cityData.places = {};
+    }
+    
+    // ✅ Добавляем место под его ID
+    cityData.places[placeData.id] = placeData;
+    cityData.updated_at = new Date().toISOString();
+    
+    // ✅ Сохраняем весь объект города
+    await cityRef.set(cityData);
+    
+    console.log(`✅ Место "${placeData.name}" сохранено в Firebase в городе "${cityName}"`);
+    
+  } catch (error) {
+    console.error('❌ Ошибка сохранения места в Firebase:', error);
+    throw error;
   }
-
+}
   // Сохранить место локально
   async savePlaceToLocal(cityName, placeData) {
     try {

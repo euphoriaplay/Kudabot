@@ -648,59 +648,37 @@ isLikelyMobile(phone) {
 }
 
 normalizeSocialUrl(url) {
-    if (!url || typeof url !== 'string') {
-        return url;
-    }
+  if (!url || typeof url !== 'string') {
+    return url;
+  }
 
-    let normalized = url.trim();
+  let normalized = url.trim();
 
-    // Удаляем все пробелы
-    normalized = normalized.replace(/\s+/g, '');
+  // Удаляем все пробелы
+  normalized = normalized.replace(/\s+/g, '');
 
-    // ✅ ИСПРАВЛЕНИЕ: Сохраняем протокол отдельно
-    let protocol = '';
-    let urlWithoutProtocol = normalized;
-    
-    // Извлекаем протокол
-    if (normalized.startsWith('https://')) {
-        protocol = 'https://';
-        urlWithoutProtocol = normalized.substring(8);
-    } else if (normalized.startsWith('http://')) {
-        protocol = 'http://';
-        urlWithoutProtocol = normalized.substring(7);
-    }
-    
-    // Удаляем лишние слэши из основной части URL (НЕ из протокола)
-    urlWithoutProtocol = urlWithoutProtocol.replace(/\/+/g, '/');
-    
-    // Собираем обратно
-    if (protocol) {
-        normalized = protocol + urlWithoutProtocol;
-    } else {
-        // Если нет протокола, добавляем https://
-        normalized = 'https://' + urlWithoutProtocol;
-    }
+  // Восстанавливаем протокол после двоеточия
+  // Если есть "http:" без слешей, добавляем //
+  if (normalized.startsWith('http:') && !normalized.startsWith('http://')) {
+    normalized = 'http://' + normalized.substring(5);
+  } else if (normalized.startsWith('https:') && !normalized.startsWith('https://')) {
+    normalized = 'https://' + normalized.substring(6);
+  }
 
-    // Удаляем слэш в конце URL
-    if (normalized.endsWith('/') && normalized.length > 8) {
-        normalized = normalized.slice(0, -1);
-    }
+  // Добавляем протокол если его нет
+  if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+    normalized = 'https://' + normalized;
+  }
 
-    // ✅ Финальная проверка и очистка через URL API
-    try {
-        const urlObj = new URL(normalized);
-        // Пересобираем URL из компонентов
-        normalized = urlObj.protocol + '//' + urlObj.host + urlObj.pathname + urlObj.search + urlObj.hash;
-        
-        // Удаляем конечный слэш если это не корневой путь
-        if (normalized.endsWith('/') && urlObj.pathname !== '/') {
-            normalized = normalized.slice(0, -1);
-        }
-    } catch (error) {
-        console.warn(`⚠️ Неверный формат URL при нормализации: ${url}`, error.message);
-    }
+  // Удаляем лишние слэши
+  normalized = normalized.replace(/([^:]\/)\/+/g, '$1');
+  
+  // Удаляем слэш в конце URL
+  if (normalized.endsWith('/') && normalized.length > 8) {
+    normalized = normalized.slice(0, -1);
+  }
 
-    return normalized;
+  return normalized;
 }
 
 getValidSocialLinks(place) {
@@ -2126,7 +2104,7 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
           const safeButtonName = this.escapeHtml(name.substring(0, 15));
           
           return {
-            text: `${icon} ${safeButtonName}${name.length > 15 ? '...' : ''}`,
+            text: `${icon}`,
             url: urlToUse
           };
         }).filter(button => button !== null);
@@ -2173,14 +2151,7 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     }
 
     // ✅ КНОПКА "СКОПИРОВАТЬ НОМЕР"
-    if (place.phone) {
-      inlineKeyboard.inline_keyboard.push([
-        { 
-          text: '📋 Скопировать номер', 
-          callback_data: `copy_phone:${cityKey}:${placeId}` 
-        }
-      ]);
-    }
+
 
     // ✅ КНОПКА "РЕДАКТИРОВАТЬ СОЦСЕТИ" (ТОЛЬКО ДЛЯ АДМИНОВ)
     const isAdmin = this.isUserAdmin(userId);
@@ -3951,7 +3922,7 @@ async showPlacesByCategory(chatId, cityKey, categoryId) {
 sortedPlaces.forEach(place => {
   const phoneIcon = place.phone ? ' 📱' : '';
   const socialIcon = place.social_links && Object.keys(place.social_links).length > 0 ? ' 📱' : '';
-  const icons = phoneIcon + socialIcon;
+  const icons = socialIcon;
   
   inlineKeyboard.inline_keyboard.push([
     {
@@ -5190,6 +5161,60 @@ if (state.action === 'editing_social_item') {
     }
   }
   
+getSocialNameFromUrl(url) {
+  if (!url || typeof url !== 'string') return 'Ссылка';
+
+  const urlLower = url.toLowerCase();
+
+  const socialDomains = {
+    'instagram.com': 'Instagram',
+    'facebook.com': 'Facebook',
+    'vk.com': 'VK',
+    'twitter.com': 'Twitter',
+    'x.com': 'X (Twitter)',
+    'tiktok.com': 'TikTok',
+    'youtube.com': 'YouTube',
+    'telegram.org': 'Telegram',
+    't.me': 'Telegram',
+    'whatsapp.com': 'WhatsApp',
+    'linkedin.com': 'LinkedIn',
+    'pinterest.com': 'Pinterest',
+    'snapchat.com': 'Snapchat',
+    'reddit.com': 'Reddit',
+    'discord.com': 'Discord',
+    'twitch.tv': 'Twitch',
+    'spotify.com': 'Spotify',
+    'apple.com/music': 'Apple Music',
+    'soundcloud.com': 'SoundCloud',
+    'github.com': 'GitHub',
+    'medium.com': 'Medium',
+    'tripadvisor.com': 'TripAdvisor',
+    'yelp.com': 'Yelp',
+    'foursquare.com': 'Foursquare',
+    'google.com/maps': 'Google Maps',
+    'yandex.ru/maps': 'Яндекс.Карты'
+  };
+
+  for (const [domain, name] of Object.entries(socialDomains)) {
+    if (urlLower.includes(domain)) {
+      return name;
+    }
+  }
+
+  // Определяем по паттерну
+  if (urlLower.includes('instagram')) return 'Instagram';
+  if (urlLower.includes('facebook')) return 'Facebook';
+  if (urlLower.includes('vk')) return 'VK';
+  if (urlLower.includes('twitter') || urlLower.includes('x.com')) return 'Twitter';
+  if (urlLower.includes('tiktok')) return 'TikTok';
+  if (urlLower.includes('youtube')) return 'YouTube';
+  if (urlLower.includes('telegram') || urlLower.includes('t.me')) return 'Telegram';
+  if (urlLower.includes('whatsapp')) return 'WhatsApp';
+  if (urlLower.includes('linkedin')) return 'LinkedIn';
+
+  return 'Ссылка';
+}
+
 async finishAddingCity(chatId, state) {
   console.log('🏁 Начинаю завершение добавления города...');
   
@@ -5629,7 +5654,8 @@ async handleAddingPlace(chatId, msg, state) {
       break;
 
     // ✅ НОВЫЙ ШАГ: Ввод социальных сетей
-    case 'enter_social':
+
+  case 'enter_social':
       if (text === '-') {
         state.placeData.social_links = {};
         state.step = 'add_photos';
@@ -5659,52 +5685,32 @@ async handleAddingPlace(chatId, msg, state) {
         return;
       }
 
-      // Парсим введенные соцсети
-      let socialLinks = {};
-      const lines = text.split('\n').filter(line => line.trim());
-
-      for (const line of lines) {
-        const parts = line.split(':').map(part => part.trim());
-        if (parts.length >= 2) {
-          const name = parts[0];
-          const url = parts.slice(1).join(':').trim();
-
-          if (name && url) {
-            const normalizedUrl = this.normalizeSocialUrl(url);
-            if (this.isValidSocialUrl(normalizedUrl)) {
-              socialLinks[name] = normalizedUrl;
-            } else {
-              await this.sendAdminMessage(
-                chatId,
-                `❌ Неверный URL для "${name}": ${url}\n\n` +
-                `Пожалуйста, введите корректный URL или отправьте "-" для пропуска:`
-              );
-              return;
-            }
-          }
-        }
+      // 🔴 ПРОСТОЙ ВАРИАНТ: Просто URL
+      const normalizedUrl = this.normalizeSocialUrl(text);
+      
+      if (!this.isValidSocialUrl(normalizedUrl)) {
+        await this.sendAdminMessage(
+          chatId,
+          `❌ Неверный URL: ${text}\n\n` +
+          `Пожалуйста, введите корректный URL (например: https://instagram.com/place):`
+        );
+        return;
       }
 
-      state.placeData.social_links = socialLinks;
+      // Автоматически определяем название соцсети по URL
+      const socialName = this.getSocialNameFromUrl(normalizedUrl);
+      state.placeData.social_links = { [socialName]: normalizedUrl };
       state.step = 'add_photos';
       this.userStates.set(chatId, state);
 
-      let socialMessage = `✅ Социальные сети сохранены!\n\n`;
-
-      if (Object.keys(socialLinks).length > 0) {
-        socialMessage += `*Добавлено соцсетей:* ${Object.keys(socialLinks).length}\n`;
-        Object.entries(socialLinks).forEach(([name, url]) => {
-          socialMessage += `• ${this.getSocialIcon(url)} ${name}\n`;
-        });
-        socialMessage += `\n`;
-      }
-
-      socialMessage += `📷 Теперь можно добавить фото места.\n\n`;
-      socialMessage += `*Инструкция:*\n`;
-      socialMessage += `1. Отправьте фото места (можно несколько)\n`;
-      socialMessage += `2. После отправки всех фото нажмите "✅ Готово"\n`;
-      socialMessage += `3. Для пропуска нажмите "⏭️ Пропустить"\n\n`;
-      socialMessage += `_Вы можете отправить до 10 фото_`;
+      const socialMessage = `✅ Социальная сеть добавлена!\n\n` +
+        `📱 *${socialName}:* ${normalizedUrl}\n\n` +
+        `📷 Теперь можно добавить фото места.\n\n` +
+        `*Инструкция:*\n` +
+        `1. Отправьте фото места (можно несколько)\n` +
+        `2. После отправки всех фото нажмите "✅ Готово"\n` +
+        `3. Для пропуска нажмите "⏭️ Пропустить"\n\n` +
+        `_Вы можете отправить до 10 фото_`;
 
       await this.sendAdminMessage(
         chatId,
@@ -5722,7 +5728,6 @@ async handleAddingPlace(chatId, msg, state) {
         }
       );
       break;
-
     // ✅ ШАГ: Добавление фото
     case 'add_photos':
       if (text === '✅ Готово') {
@@ -7097,33 +7102,21 @@ async processFieldEdit(chatId, text, state) {
         }
         break;
         
-      case 'social_links':
-        let socialLinks = {};
+       case 'social_links':
+      let socialLinks = {};
+      
+      if (newValue !== '') {
+        // Парсим введенные соцсети
+        const lines = newValue.split('\n').filter(line => line.trim());
         
-        if (newValue !== '') {
-          // Парсим введенные соцсети
-          const lines = newValue.split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          // 🔴 ИСПРАВЛЕНИЕ: Ищем первое двоеточие с пробелом
+          const firstColonIndex = line.indexOf(': ');
           
-          for (const line of lines) {
-            const parts = line.split(':').map(part => part.trim());
-            if (parts.length >= 2) {
-              const name = parts[0];
-              const url = parts.slice(1).join(':').trim();
-              
-              if (name && url) {
-                const normalizedUrl = this.normalizeSocialUrl(url);
-                if (this.isValidSocialUrl(normalizedUrl)) {
-                  socialLinks[name] = normalizedUrl;
-                } else {
-                  await this.bot.sendMessage(
-                    chatId,
-                    `❌ Неверный URL для "${name}".\n\n` +
-                    'Пожалуйста, введите корректный URL:'
-                  );
-                  return;
-                }
-              }
-            } else {
+          if (firstColonIndex === -1) {
+            // Пробуем найти просто двоеточие
+            const simpleColonIndex = line.indexOf(':');
+            if (simpleColonIndex === -1) {
               await this.bot.sendMessage(
                 chatId,
                 `❌ Неверный формат строки: "${line}".\n\n` +
@@ -7133,12 +7126,47 @@ async processFieldEdit(chatId, text, state) {
               );
               return;
             }
+            
+            const name = line.substring(0, simpleColonIndex).trim();
+            const url = line.substring(simpleColonIndex + 1).trim();
+            
+            if (name && url) {
+              const normalizedUrl = this.normalizeSocialUrl(url);
+              if (this.isValidSocialUrl(normalizedUrl)) {
+                socialLinks[name] = normalizedUrl;
+              } else {
+                await this.bot.sendMessage(
+                  chatId,
+                  `❌ Неверный URL для "${name}".\n\n` +
+                  'Пожалуйста, введите корректный URL:'
+                );
+                return;
+              }
+            }
+          } else {
+            // Используем первое двоеточие с пробелом как разделитель
+            const name = line.substring(0, firstColonIndex).trim();
+            const url = line.substring(firstColonIndex + 1).trim();
+            
+            if (name && url) {
+              const normalizedUrl = this.normalizeSocialUrl(url);
+              if (this.isValidSocialUrl(normalizedUrl)) {
+                socialLinks[name] = normalizedUrl;
+              } else {
+                await this.bot.sendMessage(
+                  chatId,
+                  `❌ Неверный URL для "${name}".\n\n` +
+                  'Пожалуйста, введите корректный URL:'
+                );
+                return;
+              }
+            }
           }
         }
-        
-        newValue = socialLinks;
-        break;
-        
+      }
+      
+      newValue = socialLinks;
+      break; 
       case 'google_place_id':
         if (newValue !== '') {
           // Базовая валидация Google Place ID

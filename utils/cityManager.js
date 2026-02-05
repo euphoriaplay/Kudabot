@@ -130,46 +130,215 @@ async getCityData(cityName) {
     }
   }
 
+async getAllCitiesFromFirebase() {
+  try {
+    if (!this.firebaseDB || !this.firebaseDB.initialized) {
+      console.log('⚠️ Firebase не инициализирован в getAllCitiesFromFirebase');
+      return [];
+    }
+    
+    console.log('🔥 Читаю cities из Firebase...');
+    const citiesRef = this.firebaseDB.db.ref('cities');
+    const snapshot = await citiesRef.once('value');
+    const citiesData = snapshot.val();
+    
+    console.log(`📊 [DEBUG Firebase raw data]:`, citiesData);
+    
+    if (!citiesData) {
+      console.log('📭 Нет городов в Firebase');
+      return [];
+    }
+    
+    const cities = [];
+    
+    // ✅ СПИСОК КЛЮЧЕЙ, КОТОРЫЕ НУЖНО ПРОПУСТИТЬ
+    const skipKeys = [
+      'created_at', 'updated_at', 'createdAt', 'updatedAt',
+      'places',  // ✅ ДОБАВЛЕНО: пропускаем ключ places
+      'photo', 'photos',
+      'name', 'description'
+    ];
+    
+    for (const [key, value] of Object.entries(citiesData)) {
+      console.log(`🔍 [DEBUG] Ключ: "${key}", Тип значения: ${typeof value}`);
+      
+      // ✅ ФИЛЬТР 1: Пропускаем служебные ключи
+      if (skipKeys.includes(key)) {
+        console.log(`  ⏭️ Пропускаю служебное поле: "${key}"`);
+        continue;
+      }
+      
+      // ✅ ФИЛЬТР 2: Пропускаем значения-даты
+      if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) {
+        console.log(`  ⏭️ Пропускаю дату: "${value}"`);
+        continue;
+      }
+      
+      // ✅ ФИЛЬТР 3: Если value - объект с полем name (это город)
+      if (value && typeof value === 'object' && value.name) {
+        // Проверяем, что name не является датой
+        if (typeof value.name === 'string' && !value.name.match(/^\d{4}-\d{2}-\d{2}T/)) {
+          cities.push(value.name);
+          console.log(`  ✅ Найден город (из объекта): "${value.name}"`);
+        }
+      }
+      // ✅ ФИЛЬТР 4: Если value - обычная строка (не дата, не служебное поле)
+      else if (typeof value === 'string' && !value.match(/^\d{4}-\d{2}-\d{2}T/)) {
+        cities.push(value);
+        console.log(`  ✅ Найден город (строка): "${value}"`);
+      }
+    }
+    
+    // Удаляем дубликаты
+    const uniqueCities = [...new Set(cities)];
+    
+    console.log(`✅ Извлечено ${uniqueCities.length} уникальных городов:`, uniqueCities);
+    return uniqueCities;
+    
+  } catch (error) {
+    console.error('❌ Ошибка getAllCitiesFromFirebase:', error);
+    return [];
+  }
+}
+
+// Вспомогательный метод для преобразования ID обратно в название
+cityIdToName(cityId) {
+  // Простое обратное преобразование - берем ID как есть
+  // Для более сложной логики можно хранить маппинг
+  if (!cityId || cityId === 'unknown') return null;
+  
+  // Заменяем underscores на пробелы
+  const name = cityId.replace(/_/g, ' ');
+  
+  // Капитализируем первую букву
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+async getCityDataFromFirebase(cityName) {
+  try {
+    if (!this.firebaseDB || !this.firebaseDB.initialized) {
+      return null;
+    }
+    
+    const cityId = this.generateCityId(cityName);
+    console.log(`🔥 [getCityDataFromFirebase] cityName: "${cityName}", cityId: "${cityId}"`);
+    
+    const cityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
+    const snapshot = await cityRef.once('value');
+    const data = snapshot.val();
+    
+    if (!data) {
+      console.log(`📭 Город "${cityName}" не найден в Firebase`);
+      return null;
+    }
+    
+    console.log(`✅ Город "${cityName}" найден в Firebase`);
+    return data;
+    
+  } catch (error) {
+    console.error(`❌ Ошибка getCityDataFromFirebase для "${cityName}":`, error);
+    return null;
+  }
+}
+
+// Вспомогательный метод для генерации ID города
+generateCityId(cityName) {
+  const translitMap = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
+    'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
+    'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n',
+    'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
+    'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
+    'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
+    'э': 'e', 'ю': 'yu', 'я': 'ya',
+    ' ': '_', '-': '_', '.': '_', ',': ''
+  };
+  
+  let key = '';
+  const cleaned = cityName.trim().toLowerCase();
+  
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
+    if (translitMap[char] !== undefined) {
+      key += translitMap[char];
+    } else if (char.match(/[a-z0-9]/)) {
+      key += char;
+    } else {
+      key += '_';
+    }
+  }
+  
+  key = key.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  return key.substring(0, 30) || 'unknown';
+}
+
   // 🔥 ПРИОРИТЕТ FIREBASE: Получить все города
 async getAllCities() {
-  console.log('🔥 [cityManager] getAllCities: Начинаю получение городов...');
-  
   try {
+    console.log('🔥 [cityManager] getAllCities: Начинаю получение городов...');
+    
     // ✅ ПРИОРИТЕТ 1: Firebase
     if (this.firebaseDB && this.firebaseDB.initialized) {
-      console.log('🔥 [cityManager] Использую Firebase...');
-      const citiesRef = this.firebaseDB.db.ref('cities');
-      const snapshot = await citiesRef.once('value');
-      const data = snapshot.val();
-      
-      console.log('🔥 [cityManager] Данные из Firebase:', data);
-      
-      if (!data) {
-        console.log('📭 Firebase пуст, проверяю локальные файлы...');
-        // Переходим к локальным файлам
-      } else {
-        // Получаем названия городов из Firebase
-        const cityNames = Object.values(data).map(city => city.name).filter(Boolean);
-        console.log('🔥 [cityManager] Города из Firebase:', cityNames);
+      console.log('🔥 Пробую получить города из Firebase...');
+      try {
+        const firebaseCities = await this.getAllCitiesFromFirebase();
         
-        // 🔄 Если есть локальные города, отсутствующие в Firebase, синхронизируем их
-        const localCities = await this.getLocalCities();
-        if (localCities && localCities.length > 0) {
-          await this.syncLocalCitiesToFirebase(localCities);
+        console.log(`📊 [DEBUG] Firebase вернул:`, {
+          exists: !!firebaseCities,
+          isArray: Array.isArray(firebaseCities),
+          length: firebaseCities ? firebaseCities.length : 0,
+          cities: firebaseCities
+        });
+        
+        if (firebaseCities && firebaseCities.length > 0) {
+          console.log(`✅ [FIREBASE] Получено ${firebaseCities.length} городов:`, firebaseCities);
+          return firebaseCities;
         }
         
-        return cityNames;
+        console.log('📭 Firebase пуст, проверяю локальные файлы...');
+      } catch (fbError) {
+        console.error('❌ Ошибка Firebase:', fbError.message);
       }
+    } else {
+      console.warn('⚠️ Firebase не инициализирован');
     }
     
     // ⚠️ FALLBACK: Локальные файлы
     console.log('📁 Загружаю города из локальных файлов...');
-    return await this.getLocalCities();
+    
+    const citiesData = await fileManager.readJSON('cities.json');
+    
+    console.log(`📊 [DEBUG] Локальные данные:`, {
+      exists: !!citiesData,
+      isArray: Array.isArray(citiesData),
+      type: typeof citiesData,
+      length: citiesData ? (Array.isArray(citiesData) ? citiesData.length : Object.keys(citiesData).length) : 0,
+      data: citiesData
+    });
+    
+    if (!citiesData) {
+      console.log('📭 cities.json пуст, возвращаю пустой массив');
+      return [];
+    }
+    
+    // Если это массив - возвращаем как есть
+    if (Array.isArray(citiesData)) {
+      console.log(`✅ Получено ${citiesData.length} городов из локального файла:`, citiesData);
+      return citiesData;
+    }
+    
+    // Если это объект - извлекаем значения
+    if (typeof citiesData === 'object') {
+      const cities = Object.values(citiesData);
+      console.log(`✅ Преобразовано ${cities.length} городов из объекта:`, cities);
+      return cities;
+    }
+    
+    console.warn('⚠️ Неизвестный формат cities.json');
+    return [];
     
   } catch (error) {
-    console.error('🔥 [cityManager] Ошибка при получении городов:', error);
-    // При ошибке Firebase, используем локальные файлы
-    return await this.getLocalCities();
+    console.error('❌ [getAllCities] Ошибка:', error);
+    return [];
   }
 }
 
@@ -260,10 +429,33 @@ async addCity(cityName, options = {}) {
   try {
     console.log(`➕ Добавляю город: "${cityName}"`);
     
-    // Получаем список городов
-    const cities = await this.getAllCities();
+    // ✅ Проверяем, существует ли город УЖЕ в Firebase
+    if (this.firebaseDB && this.firebaseDB.initialized) {
+      const cityId = this.generateCityId(cityName);
+      console.log(`🔍 Проверяю существование города с ID: "${cityId}"`);
+      
+      const existingCityRef = this.firebaseDB.db.ref(`cities/${cityId}`);
+      const snapshot = await existingCityRef.once('value');
+      
+      if (snapshot.exists()) {
+        console.log(`⚠️ Город "${cityName}" уже существует в Firebase с ID: "${cityId}"`);
+        return {
+          success: false,
+          message: `Город "${cityName}" уже существует`
+        };
+      }
+    }
     
-    // Проверяем, существует ли город
+    // Получаем список городов из локального файла
+    let cities = [];
+    try {
+      cities = await this.getAllCities();
+    } catch (error) {
+      console.log('📝 Создаю новый список городов');
+      cities = [];
+    }
+    
+    // Проверяем дубликаты
     if (cities.includes(cityName)) {
       return {
         success: false,
@@ -279,20 +471,27 @@ async addCity(cityName, options = {}) {
       console.log('🔥 [ПРИОРИТЕТ] Сохраняю город в Firebase...');
       try {
         const cityId = this.generateCityId(cityName);
+        console.log(`🔑 Создаю город с ID: "${cityId}" для города: "${cityName}"`);
+        
         const cityData = {
           name: cityName,
-          places: [],  // ✅ ВАЖНО: создаем пустой массив places
-          photo: options.photoUrl ? {
-            url: options.photoUrl,
-            fileName: options.photoFileName,
-            telegramFileId: options.photoFileId
-          } : null,
+          places: {},  // Пустой объект для мест
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
         
+        if (options.photoUrl) {
+          cityData.photo = {
+            url: options.photoUrl,
+            fileName: options.photoFileName,
+            telegramFileId: options.photoFileId
+          };
+        }
+        
+        // ✅ Сохраняем под уникальным ключом cityId
         await this.firebaseDB.db.ref(`cities/${cityId}`).set(cityData);
-        console.log('✅ [FIREBASE] Город сохранен');
+        console.log(`✅ [FIREBASE] Город "${cityName}" сохранен с ID: ${cityId}`);
+        
       } catch (firebaseError) {
         console.error('❌ Ошибка сохранения в Firebase:', firebaseError.message);
       }
@@ -301,22 +500,25 @@ async addCity(cityName, options = {}) {
     // ⚠️ FALLBACK: Сохраняем локально
     console.log('📁 Сохраняю город локально...');
     
-    // Сохраняем список городов
+    // Сохраняем обновленный список городов
     await fileManager.writeJSON('cities.json', cities);
     
-    // ✅ ВАЖНО: Создаем файл города с правильной структурой
+    // Создаем файл города
     const cityFileName = fileManager.generateCityFileName(cityName);
     const cityData = {
       name: cityName,
-      places: [],  // ✅ ВАЖНО: создаем пустой массив places
-      photo: options.photoUrl ? {
-        url: options.photoUrl,
-        fileName: options.photoFileName,
-        telegramFileId: options.photoFileId
-      } : null,
+      places: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
+    
+    if (options.photoUrl) {
+      cityData.photo = {
+        url: options.photoUrl,
+        fileName: options.photoFileName,
+        telegramFileId: options.photoFileId
+      };
+    }
     
     await fileManager.writeJSON(cityFileName, cityData);
     console.log(`✅ Создан файл города: ${cityFileName}`);
@@ -417,13 +619,59 @@ async addCity(cityName, options = {}) {
   }
 
   // Вспомогательный метод: генерация ID города для Firebase
-  generateCityId(cityName) {
-    // Преобразуем название в безопасный ID
-    return cityName
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, '');
+generateCityId(cityName) {
+  if (!cityName || typeof cityName !== 'string') {
+    console.warn('⚠️ [generateCityId] Некорректное имя города:', cityName);
+    return 'unknown';
   }
+  
+  console.log(`🔑 [generateCityId] Входное значение: "${cityName}"`);
+  
+  const translitMap = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd',
+    'е': 'e', 'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i',
+    'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n',
+    'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
+    'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
+    'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
+    'э': 'e', 'ю': 'yu', 'я': 'ya'
+  };
+  
+  let key = '';
+  const cleaned = cityName.trim().toLowerCase();
+  
+  for (let i = 0; i < cleaned.length; i++) {
+    const char = cleaned[i];
+    
+    if (translitMap[char] !== undefined) {
+      key += translitMap[char];
+    } else if (char.match(/[a-z0-9]/)) {
+      key += char;
+    } else if (char === ' ' || char === '-' || char === '_') {
+      key += '_';
+    } else if (char === '.') {
+      key += '_';
+    }
+    // Пропускаем все остальные символы
+  }
+  
+  // Убираем множественные подчеркивания
+  key = key.replace(/_+/g, '_');
+  
+  // Убираем подчеркивания в начале и конце
+  key = key.replace(/^_+|_+$/g, '');
+  
+  // Если ключ пустой, используем 'unknown'
+  if (!key || key.length === 0) {
+    console.warn(`⚠️ [generateCityId] Получился пустой ключ для "${cityName}", использую 'unknown'`);
+    return 'unknown';
+  }
+  
+  const result = key.substring(0, 50); // Увеличил лимит до 50
+  console.log(`🔑 [generateCityId] Результат: "${cityName}" -> "${result}"`);
+  
+  return result;
+}
 }
 
 module.exports = new CityManager();

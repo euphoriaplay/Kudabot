@@ -17,21 +17,23 @@ class CityGuideBot {
     this.adminIds = adminIds;
     this.botToken = botToken;
 
-const fieldLabels = {
-  name: 'название',
-  address: 'адрес',
-  working_hours: 'время работы',
-  average_price: 'средний чек',
-  description: 'описание',
-  website: 'сайт',
-  phone: 'телефон',
-  map_url: 'ссылка на карту',
-  category_id: 'категорию',
-  social_links: 'социальные сети',
-  latitude: 'широта',
-  longitude: 'долгота',
-  google_place_id: 'Google Place ID'
-};
+  this.fieldLabels = {
+    name: 'название',
+    address: 'адрес',
+    working_hours: 'время работы',
+    average_price: 'средний чек',
+    description: 'описание',
+    website: 'сайт',
+    phone: 'телефон',
+    map_url: 'ссылка на карту',
+    category_id: 'категория',
+    social_links: 'социальные сети',
+    latitude: 'широта',
+    longitude: 'долгота',
+    google_place_id: 'Google Place ID'
+  };
+
+  this.adminSessions = new Map();
 
     this.adminSessions = new Map();
     // Initialize ALL required Maps
@@ -396,21 +398,11 @@ async getCityNameFromKey(cityKey) {
 }
 
   // Метод для очистки callback_data в inline_keyboard
-  cleanInlineKeyboard(markup) {
+ cleanInlineKeyboard(markup) {
   if (!markup || !markup.inline_keyboard) return;
   
   for (const row of markup.inline_keyboard) {
     for (const button of row) {
-      // ✅ НЕ ПРОВЕРЯЕМ URL через isTelegramSafeUrl
-      // Просто проверяем базовые требования
-      if (button.url) {
-        // Проверяем только базовую валидность URL
-        if (!button.url.startsWith('http://') && !button.url.startsWith('https://')) {
-          console.error(`❌ Удаляю URL без HTTP/HTTPS: ${button.url}`);
-          delete button.url;
-        }
-      }
-      
       if (button.callback_data) {
         // Очищаем callback_data от недопустимых символов
         button.callback_data = this.cleanCallbackData(button.callback_data);
@@ -418,13 +410,22 @@ async getCityNameFromKey(cityKey) {
         // Убеждаемся, что длина не превышает 64 байта
         if (button.callback_data.length > 64) {
           console.warn(`⚠️ Callback_data слишком длинный: ${button.callback_data.length}, укорачиваю`);
-          button.callback_data = button.callback_data.substring(0, 64);
+          // Сохраняем первые 3 части и укорачиваем последнюю
+          const parts = button.callback_data.split(':');
+          if (parts.length > 3) {
+            const lastPart = parts[parts.length - 1];
+            if (lastPart.length > 20) {
+              parts[parts.length - 1] = lastPart.substring(0, 20);
+            }
+            button.callback_data = parts.join(':').substring(0, 64);
+          } else {
+            button.callback_data = button.callback_data.substring(0, 64);
+          }
         }
       }
     }
   }
 }
-
   // Метод для очистки callback_data
   cleanCallbackData(data) {
     if (!data) return '';
@@ -870,7 +871,6 @@ isValidSocialUrl(url) {
   // Метод для определения мобильных номеров (международный)
 
   // ============ ОСНОВНЫЕ МЕТОДЫ ============
-
 async handleEditSocialLinks(chatId, cityKey, placeId) {
   try {
     const cityName = await this.getCityNameFromKey(cityKey);
@@ -887,7 +887,6 @@ async handleEditSocialLinks(chatId, cityKey, placeId) {
       return;
     }
 
-    // Сохраняем состояние для редактирования соцсетей
     this.userStates.set(chatId, {
       action: 'editing_social',
       step: 'select_action',
@@ -898,50 +897,69 @@ async handleEditSocialLinks(chatId, cityKey, placeId) {
 
     let message = `✏️ *Редактирование ссылок для "${place.name}"*\n\n`;
     
-    // Показываем текущие ссылки
     if (place.website) {
       message += `🌐 *Сайт:* ${place.website}\n`;
     }
     
     if (place.social_links && Object.keys(place.social_links).length > 0) {
       message += `\n📱 *Текущие социальные сети:*\n`;
-      Object.entries(place.social_links).forEach(([name, url]) => {
-        message += `• ${this.getSocialIcon(url)} ${name}: ${url}\n`;
+      Object.entries(place.social_links).forEach(([name, url], index) => {
+        const icon = this.getSocialIcon(url);
+        message += `• ${icon} ${name}: ${url}\n`;
       });
     } else {
       message += `\n📭 *Социальные сети не добавлены*\n`;
     }
 
     const inlineKeyboard = {
-      inline_keyboard: [
-        [
-          { text: '🌐 Изменить сайт', callback_data: `edit_social_field:${cityKey}:${placeId}:website` },
-          { text: '📱 Добавить соцсеть', callback_data: `edit_social_field:${cityKey}:${placeId}:add_social` }
-        ]
-      ]
+      inline_keyboard: []
     };
 
-    // Кнопки для редактирования существующих соцсетей
+    // Кнопки для сайта и добавления соцсети
+    inlineKeyboard.inline_keyboard.push([
+      { 
+        text: '🌐 Изменить сайт', 
+        callback_data: `edit_social_field:${cityKey}:${placeId}:website` 
+      }
+
+    ]);
+
+    // Кнопки для существующих соцсетей
     if (place.social_links && Object.keys(place.social_links).length > 0) {
-      Object.entries(place.social_links).forEach(([name, url]) => {
-        const shortName = name.length > 15 ? name.substring(0, 12) + '...' : name;
+      const socialEntries = Object.entries(place.social_links);
+      
+      socialEntries.forEach(([name, url], index) => {
+        const shortName = name.length > 12 ? name.substring(0, 10) + '..' : name;
+        const icon = this.getSocialIcon(url);
+        
         inlineKeyboard.inline_keyboard.push([
           { 
-            text: `✏️ ${this.getSocialIcon(url)} ${shortName}`, 
-            callback_data: `edit_social_item:${cityKey}:${placeId}:${encodeURIComponent(name)}` 
+            text: `✏️ ${icon} ${shortName}`, 
+            callback_data: `edit_social_item:${cityKey}:${placeId}:${index}` 
           },
           { 
             text: '🗑️', 
-            callback_data: `delete_social_item:${cityKey}:${placeId}:${encodeURIComponent(name)}` 
+            callback_data: `delete_social_item:${cityKey}:${placeId}:${index}` 
           }
         ]);
       });
     }
 
+    // Кнопки навигации
     inlineKeyboard.inline_keyboard.push([
       { text: '🔙 Назад к месту', callback_data: `show_place:${cityKey}:${placeId}` },
       { text: '❌ Отмена', callback_data: 'admin_action:cancel' }
     ]);
+
+    // Очищаем callback_data в inline_keyboard перед отправкой
+    this.cleanInlineKeyboard(inlineKeyboard);
+    
+    // Проверяем валидность разметки
+    if (!this.validateReplyMarkup(inlineKeyboard)) {
+      console.error('❌ Некорректная клавиатура после очистки');
+      await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
+      return;
+    }
 
     await this.sendAdminMessage(chatId, message, {
       parse_mode: 'Markdown',
@@ -955,9 +973,22 @@ async handleEditSocialLinks(chatId, cityKey, placeId) {
 }
 
 
-
 async handleEditSocialField(chatId, cityKey, placeId, field) {
   try {
+    console.log(`🔧 [handleEditSocialField] Параметры:`, { cityKey, placeId, field });
+    
+    // Проверяем, что field не пустой
+    if (!field || field.trim() === '') {
+      console.error('❌ Пустой field в handleEditSocialField');
+      await this.sendAdminMessage(chatId, '❌ Ошибка: не указано поле для редактирования.');
+      
+      // Показываем меню снова
+      setTimeout(async () => {
+        await this.handleEditSocialLinks(chatId, cityKey, placeId);
+      }, 500);
+      return;
+    }
+    
     const cityName = await this.getCityNameFromKey(cityKey);
     const place = await placeManager.getPlaceById(cityName, placeId);
     
@@ -966,46 +997,109 @@ async handleEditSocialField(chatId, cityKey, placeId, field) {
       return;
     }
     
-    this.userStates.set(chatId, {
-      action: 'editing_social_field',
-      step: 'enter_value',
-      cityKey: cityKey,
-      placeId: placeId,
-      field: field,
-      placeData: place
-    });
-    
-    let message = '';
-    
+    // Обработка разных полей
     if (field === 'website') {
-      message = `✏️ *Редактирование сайта*\n\n`;
-      message += `Текущий сайт: ${place.website || 'не указан'}\n\n`;
-      message += `Введите новый URL сайта (для удаления отправьте "-"):`;
+      this.userStates.set(chatId, {
+        action: 'editing_social_field',
+        step: 'enter_value',
+        cityKey: cityKey,
+        placeId: placeId,
+        field: 'website',
+        placeData: place
+      });
+      
+      const currentValue = place.website || 'не указан';
+      await this.sendAdminMessage(
+        chatId,
+        `✏️ *Редактирование сайта для "${place.name}"*\n\n` +
+        `Текущий сайт: ${currentValue}\n\n` +
+        `Введите новый URL сайта (для удаления отправьте "-"):`,
+        { parse_mode: 'Markdown' }
+      );
+      
     } else if (field === 'add_social') {
-      message = `📱 *Добавление социальной сети*\n\n`;
-      message += `*Формат:* Название:URL\n`;
-      message += `*Пример:* Instagram: https://instagram.com/place\n\n`;
-      message += `Введите данные новой соцсети:`;
+      this.userStates.set(chatId, {
+        action: 'editing_social_field',
+        step: 'enter_value',
+        cityKey: cityKey,
+        placeId: placeId,
+        field: 'add_social',
+        placeData: place
+      });
+      
+      await this.sendAdminMessage(
+        chatId,
+        `✏️ *Добавление социальной сети для "${place.name}"*\n\n` +
+        `*Формат ввода:*\n` +
+        `Название: URL\n\n` +
+        `*Пример:*\n` +
+        `Instagram: https://instagram.com/place\n` +
+        `Facebook: https://facebook.com/place\n\n` +
+        `Введите данные в указанном формате:`,
+        { parse_mode: 'Markdown' }
+      );
+      
+    } else {
+      // Пытаемся получить индекс соцсети
+      const index = parseInt(field);
+      if (!isNaN(index)) {
+        // Это индекс существующей соцсети
+        await this.handleEditSocialItem(chatId, cityKey, placeId, index);
+      } else {
+        await this.sendAdminMessage(chatId, `❌ Неизвестное поле: ${field}`);
+      }
     }
     
-    await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
-    
   } catch (error) {
-    console.error('❌ Ошибка при редактировании поля соцсети:', error);
+    console.error('❌ Ошибка в handleEditSocialField:', error);
     await this.sendAdminMessage(chatId, '❌ Произошла ошибка.');
   }
 }
-
 // Метод для редактирования конкретной соцсети
-async handleEditSocialItem(chatId, cityKey, placeId, socialName) {
+async handleEditSocialItem(chatId, cityKey, placeId, socialIndex) {
   try {
+    console.log(`✏️ [handleEditSocialItem] Параметры:`, { cityKey, placeId, socialIndex });
+    
     const cityName = await this.getCityNameFromKey(cityKey);
     const place = await placeManager.getPlaceById(cityName, placeId);
     
-    if (!place || !place.social_links || !place.social_links[socialName]) {
-      await this.sendAdminMessage(chatId, '❌ Соцсеть не найдена.');
+    console.log(`📊 [DEBUG place]:`, {
+      exists: !!place,
+      name: place?.name,
+      hasSocialLinks: !!place?.social_links,
+      socialLinksType: typeof place?.social_links,
+      socialLinks: place?.social_links
+    });
+    
+    if (!place) {
+      await this.sendAdminMessage(chatId, '❌ Место не найдено.');
       return;
     }
+    
+    // ✅ ПРОВЕРКА: Если social_links отсутствует или пустой
+    if (!place.social_links || typeof place.social_links !== 'object' || Object.keys(place.social_links).length === 0) {
+      await this.sendAdminMessage(chatId, '❌ У этого места нет социальных сетей.');
+      return;
+    }
+    
+    // ✅ Получаем соцсеть по индексу
+    const socialEntries = Object.entries(place.social_links);
+    const index = parseInt(socialIndex);
+    
+    console.log(`📊 [DEBUG социальные сети]:`, {
+      totalCount: socialEntries.length,
+      requestedIndex: index,
+      entries: socialEntries
+    });
+    
+    if (isNaN(index) || index < 0 || index >= socialEntries.length) {
+      await this.sendAdminMessage(chatId, `❌ Неверный индекс соцсети: ${socialIndex}`);
+      return;
+    }
+    
+    const [socialName, socialUrl] = socialEntries[index];
+    
+    console.log(`✅ Найдена соцсеть по индексу ${index}:`, { socialName, socialUrl });
     
     this.userStates.set(chatId, {
       action: 'editing_social_item',
@@ -1013,18 +1107,72 @@ async handleEditSocialItem(chatId, cityKey, placeId, socialName) {
       cityKey: cityKey,
       placeId: placeId,
       socialName: socialName,
-      socialUrl: place.social_links[socialName],
+      socialUrl: socialUrl,
       placeData: place
     });
     
     const message = `✏️ *Редактирование соцсети "${socialName}"*\n\n` +
-                   `Текущий URL: ${place.social_links[socialName]}\n\n` +
+                   `Текущий URL: ${socialUrl}\n\n` +
                    `Введите новый URL (для удаления отправьте "-"):`;
     
     await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
     
   } catch (error) {
     console.error('❌ Ошибка при редактировании соцсети:', error);
+    await this.sendAdminMessage(chatId, '❌ Произошла ошибка.');
+  }
+}
+
+async handleDeleteSocialItem(chatId, cityKey, placeId, socialIndex) {
+  try {
+    const cityName = await this.getCityNameFromKey(cityKey);
+    const place = await placeManager.getPlaceById(cityName, placeId);
+    
+    if (!place || !place.social_links) {
+      await this.sendAdminMessage(chatId, '❌ Место или соцсети не найдены.');
+      return;
+    }
+    
+    // ✅ Получаем соцсеть по индексу
+    const socialEntries = Object.entries(place.social_links);
+    const index = parseInt(socialIndex);
+    
+    if (index < 0 || index >= socialEntries.length) {
+      await this.sendAdminMessage(chatId, '❌ Соцсеть не найдена.');
+      return;
+    }
+    
+    const [socialName, socialUrl] = socialEntries[index];
+    
+    const inlineKeyboard = {
+      inline_keyboard: [
+        [
+          { 
+            text: '✅ Да, удалить', 
+            callback_data: `confirm_delete_social:${cityKey}:${placeId}:${index}` 
+          },
+          { 
+            text: '❌ Нет, отмена', 
+            callback_data: `edit_social:${cityKey}:${placeId}` 
+          }
+        ]
+      ]
+    };
+    
+    await this.sendAdminMessage(
+      chatId,
+      `🗑️ *Удаление соцсети*\n\n` +
+      `Вы уверены, что хотите удалить соцсеть "${socialName}"?\n` +
+      `URL: ${socialUrl}\n\n` +
+      `Это действие нельзя отменить!`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: inlineKeyboard
+      }
+    );
+    
+  } catch (error) {
+    console.error('❌ Ошибка при удалении соцсети:', error);
     await this.sendAdminMessage(chatId, '❌ Произошла ошибка.');
   }
 }
@@ -1081,8 +1229,56 @@ async handleDeleteSocialItem(chatId, cityKey, placeId, socialName) {
     const cityName = await this.getCityNameFromKey(cityKey);
     const place = await placeManager.getPlaceById(cityName, placeId);
     
-    if (!place || !place.social_links || !place.social_links[socialName]) {
-      await this.sendAdminMessage(chatId, '❌ Соцсеть не найдена.');
+    console.log(`🗑️ [handleDeleteSocialItem] Пытаюсь удалить соцсеть "${socialName}"`);
+    console.log(`📊 [DEBUG] Данные места:`, {
+      name: place?.name,
+      hasSocialLinks: !!place?.social_links,
+      socialLinksType: typeof place?.social_links,
+      socialLinksKeys: place?.social_links ? Object.keys(place.social_links) : []
+    });
+    
+    if (!place) {
+      await this.sendAdminMessage(chatId, '❌ Место не найдено.');
+      return;
+    }
+    
+    if (!place.social_links || typeof place.social_links !== 'object') {
+      await this.sendAdminMessage(chatId, '❌ У этого места нет социальных сетей.');
+      return;
+    }
+    
+    // ✅ Декодируем название соцсети (на случай если оно было закодировано)
+    const decodedSocialName = decodeURIComponent(socialName);
+    
+    console.log(`🔍 Ищу соцсеть:`, {
+      encoded: socialName,
+      decoded: decodedSocialName,
+      available: Object.keys(place.social_links)
+    });
+    
+    // Ищем соцсеть по имени (с учетом разных вариантов)
+    let foundSocialName = null;
+    let foundSocialUrl = null;
+    
+    for (const [name, url] of Object.entries(place.social_links)) {
+      if (name === socialName || 
+          name === decodedSocialName || 
+          encodeURIComponent(name) === socialName) {
+        foundSocialName = name;
+        foundSocialUrl = url;
+        break;
+      }
+    }
+    
+    if (!foundSocialName) {
+      console.error(`❌ Соцсеть не найдена. Искали: "${socialName}" (decoded: "${decodedSocialName}")`);
+      console.error(`❌ Доступные соцсети:`, Object.keys(place.social_links));
+      
+      await this.sendAdminMessage(
+        chatId,
+        `❌ Соцсеть "${decodedSocialName}" не найдена.\n\n` +
+        `Доступные соцсети:\n${Object.keys(place.social_links).map(n => `• ${n}`).join('\n')}`
+      );
       return;
     }
     
@@ -1091,7 +1287,7 @@ async handleDeleteSocialItem(chatId, cityKey, placeId, socialName) {
         [
           { 
             text: '✅ Да, удалить', 
-            callback_data: `confirm_delete_social:${cityKey}:${placeId}:${encodeURIComponent(socialName)}` 
+            callback_data: `confirm_delete_social:${cityKey}:${placeId}:${encodeURIComponent(foundSocialName)}` 
           },
           { 
             text: '❌ Нет, отмена', 
@@ -1104,8 +1300,8 @@ async handleDeleteSocialItem(chatId, cityKey, placeId, socialName) {
     await this.sendAdminMessage(
       chatId,
       `🗑️ *Удаление соцсети*\n\n` +
-      `Вы уверены, что хотите удалить соцсеть "${socialName}"?\n` +
-      `URL: ${place.social_links[socialName]}\n\n` +
+      `Вы уверены, что хотите удалить соцсеть "${foundSocialName}"?\n` +
+      `URL: ${foundSocialUrl}\n\n` +
       `Это действие нельзя отменить!`,
       {
         parse_mode: 'Markdown',
@@ -1118,7 +1314,6 @@ async handleDeleteSocialItem(chatId, cityKey, placeId, socialName) {
     await this.sendAdminMessage(chatId, '❌ Произошла ошибка.');
   }
 }
-
 
 
 
@@ -1137,15 +1332,25 @@ isValidSocialUrl(url) {
 }
 
 // Метод для подтверждения удаления соцсети
-async confirmDeleteSocial(chatId, cityKey, placeId, socialName) {
+async confirmDeleteSocial(chatId, cityKey, placeId, socialIndex) {
   try {
     const cityName = await this.getCityNameFromKey(cityKey);
     const place = await placeManager.getPlaceById(cityName, placeId);
     
-    if (!place || !place.social_links || !place.social_links[socialName]) {
+    if (!place || !place.social_links) {
+      await this.sendAdminMessage(chatId, '❌ Место или соцсети не найдены.');
+      return;
+    }
+    
+    const socialEntries = Object.entries(place.social_links);
+    const index = parseInt(socialIndex);
+    
+    if (index < 0 || index >= socialEntries.length) {
       await this.sendAdminMessage(chatId, '❌ Соцсеть не найдена.');
       return;
     }
+    
+    const [socialName] = socialEntries[index];
     
     // Удаляем соцсеть
     const socialLinks = { ...place.social_links };
@@ -1161,7 +1366,6 @@ async confirmDeleteSocial(chatId, cityKey, placeId, socialName) {
         { parse_mode: 'Markdown' }
       );
       
-      // Возвращаемся к редактированию соцсетей
       setTimeout(async () => {
         await this.handleEditSocialLinks(chatId, cityKey, placeId);
       }, 1000);
@@ -3564,10 +3768,7 @@ async testUberLink(chatId, place) {
       adData: ad
     });
     
-    const fieldLabels = {
-      text: 'текст объявления',
-      url: 'URL'
-    };
+ 
     
     const currentValue = ad[field] || 'не указано';
     
@@ -4926,7 +5127,18 @@ if (state.action === 'editing_social_item') {
       case 'search':
         await this.handleSearch(chatId, text);
         break;
+
+
     }
+  if (state.action === 'editing_social_field') {
+  await this.handleEditingSocialField(chatId, msg, state);
+  return;
+}
+
+if (state.action === 'editing_social_item') {
+  await this.handleEditingSocialItem(chatId, msg, state);
+  return;
+}
   }
 
   async handleEditingCategory(chatId, msg, state) {
@@ -6722,21 +6934,7 @@ async handleEditPlaceField(chatId, cityKey, placeId, field, messageId) {
   }
 
   // Редактирование поля
-  const fieldLabels = {
-    name: 'название',
-    address: 'адрес',
-    working_hours: 'время работы',
-    average_price: 'средний чек',
-    description: 'описание',
-    website: 'сайт',
-    phone: 'телефон',
-    map_url: 'ссылка на карту',
-    category_id: 'категорию',
-    social_links: 'социальные сети',
-    latitude: 'широта',
-    longitude: 'долгота',
-    google_place_id: 'Google Place ID'
-  };
+
 
   const currentValue = place[field] || 'не указано';
 
@@ -6751,7 +6949,7 @@ async handleEditPlaceField(chatId, cityKey, placeId, field, messageId) {
     timestamp: Date.now()
   });
 
-  let message = `✏️ *Редактирование: ${fieldLabels[field] || field}*\n\n`;
+  let message = `✏️ *Редактирование: ${this.fieldLabels[field] || field}*\n\n`;
   message += `*Место:* ${place.name}\n`;
   
   // Особый формат для каждого поля
@@ -7219,7 +7417,7 @@ async processFieldEdit(chatId, text, state) {
       this.userStates.delete(chatId);
 
       // Отправляем подтверждение
-      let successMessage = `✅ Поле "${fieldLabels[editingField] || editingField}" успешно обновлено!`;
+      let successMessage = `✅ Поле "${this.fieldLabels[editingField] || editingField}" успешно обновлено!`;
       
       // Особое сообщение для социальных сетей
       if (editingField === 'social_links') {
@@ -7335,14 +7533,11 @@ async handleEditCategoryField(chatId, categoryId, field, messageId) {
     category: category
   });
   
-  const fieldLabels = {
-    name: 'название',
-    emoji: 'эмодзи'
-  };
+
   
   const currentValue = field === 'name' ? category.name : category.emoji;
   
-  let message = `✏️ *Изменение ${fieldLabels[field]} категории*\n\n`;
+  let message = `✏️ *Изменение ${this.fieldLabels[field]} категории*\n\n`;
   message += `Текущее значение: ${currentValue}\n\n`;
   
   if (field === 'name') {
@@ -8124,16 +8319,10 @@ async notifyAdminsAboutIssue(cityName, place, issueType, fieldToEdit) {
   message += `❗ *Проблема:* ${issueLabels[issueType]}\n\n`;
   
   // Показываем текущее значение поля
-  const fieldLabels = {
-    description: 'Описание',
-    working_hours: 'Время работы',
-    address: 'Адрес',
-    website: 'Сайт',
-    phone: 'Телефон'
-  };
+
   
   if (fieldToEdit && place[fieldToEdit]) {
-    message += `📋 *Текущее значение (${fieldLabels[fieldToEdit]}):*\n`;
+    message += `📋 *Текущее значение (${this.fieldLabels[fieldToEdit]}):*\n`;
     message += `${place[fieldToEdit]}\n\n`;
   }
   
@@ -8146,7 +8335,7 @@ async notifyAdminsAboutIssue(cityName, place, issueType, fieldToEdit) {
     inline_keyboard: [
       [
         { 
-          text: `✏️ Исправить ${fieldLabels[fieldToEdit]}`, 
+          text: `✏️ Исправить ${this.fieldLabels[fieldToEdit]}`, 
           callback_data: `e_f:${cityKey}:${shortPlaceId}:${this.getShortFieldName(fieldToEdit)}` 
         }
       ],

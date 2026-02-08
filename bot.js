@@ -2279,7 +2279,7 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       Object.entries(socialLinks).forEach(([name, url]) => {
         const icon = this.getSocialIcon(url);
         const safeSocialName = this.escapeHtml(name);
-        message += `• ${icon} ${safeSocialName}: ${url}\n`;
+         message += `• ${icon} : ${url}\n`;
       });
     }
 

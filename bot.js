@@ -427,15 +427,103 @@ async getCityNameFromKey(cityKey) {
   }
 }
   // Метод для очистки callback_data
-  cleanCallbackData(data) {
-    if (!data) return '';
-    
-    return data
-      .replace(/[^\x00-\x7F]/g, '') // Удаляем не-ASCII символы
-      .replace(/[^a-zA-Z0-9_:.-]/g, '_') // Заменяем недопустимые символы
-      .replace(/_+/g, '_') // Убираем повторяющиеся подчеркивания
+// Метод для очистки callback_data
+cleanCallbackData(data) {
+  try {
+    // ✅ ИСПРАВЛЕНИЕ: Обработка разных типов входных данных
+    if (data === undefined || data === null) {
+      return '';
+    }
+
+    // ✅ ИСПРАВЛЕНИЕ: Преобразуем любые данные в строку
+    let dataString;
+    if (typeof data === 'string') {
+      dataString = data;
+    } else if (typeof data === 'number') {
+      dataString = data.toString();
+    } else if (typeof data === 'boolean') {
+      dataString = data ? 'true' : 'false';
+    } else if (Buffer.isBuffer(data)) {
+      dataString = data.toString('utf8');
+    } else if (Array.isArray(data) || typeof data === 'object') {
+      dataString = JSON.stringify(data);
+    } else {
+      dataString = String(data);
+    }
+
+    console.log(`🔍 [cleanCallbackData] Входные данные: type=${typeof data}, value=${data}, converted="${dataString}"`);
+
+    // Telegram разрешает только: A-Z, a-z, 0-9, _, -, . и :
+    // 1. Удаляем все не-ASCII символы
+    // 2. Заменяем неразрешенные символы на _
+    // 3. Убираем множественные символы
+    let cleaned = dataString
+      .replace(/[^\x00-\x7F]/g, '') // Удаляем все не-ASCII символы
+      .replace(/[^a-zA-Z0-9_:.-]/g, '_') // Заменяем неразрешенные символы на _
+      .replace(/\.{2,}/g, '.') // Убираем множественные точки
+      .replace(/_+/g, '_') // Убираем множественные подчеркивания
+      .replace(/^-+|-+$/g, '') // Убираем дефисы в начале/конце
+      .replace(/^:+|:+$/g, '') // Убираем двоеточия в начале/конце
       .trim();
+
+    // Проверяем длину в байтах (максимум 64 байта для Telegram)
+    const byteLength = Buffer.byteLength(cleaned, 'utf8');
+
+    if (byteLength > 64) {
+      console.warn(`⚠️ Callback_data превышает 64 байта: ${byteLength}, укорачиваю`);
+
+      // Укорачиваем, сохраняя структуру prefix:id:param
+      const parts = cleaned.split(':');
+
+      if (parts.length >= 3) {
+        // Сохраняем префикс и ID, укорачиваем параметры
+        const prefix = parts[0];
+        const id = parts[1];
+        const params = parts.slice(2);
+
+        // Укорачиваем каждый параметр отдельно
+        const shortenedParams = params.map(param => {
+          if (param.length > 10) {
+            return param.substring(0, 10);
+          }
+          return param;
+        });
+
+        // Собираем обратно
+        const shortened = `${prefix}:${id}:${shortenedParams.join(':')}`;
+
+        // Проверяем длину снова
+        const finalByteLength = Buffer.byteLength(shortened, 'utf8');
+        if (finalByteLength > 64) {
+          // Если все еще слишком длинный, просто обрезаем
+          return shortened.substring(0, 64);
+        }
+
+        return shortened;
+      } else {
+        // Просто обрезаем до 64 байт
+        // Нужно обрезать по байтам, а не по символам
+        let result = '';
+        let totalBytes = 0;
+
+        for (let char of cleaned) {
+          const charBytes = Buffer.byteLength(char, 'utf8');
+          if (totalBytes + charBytes > 64) break;
+
+          result += char;
+          totalBytes += charBytes;
+        }
+
+        return result;
+      }
+    }
+
+    return cleaned;
+  } catch (error) {
+    console.error('❌ Ошибка в cleanCallbackData:', error);
+    return '';
   }
+}
 
   // Метод для очистки текста кнопок
   cleanButtonText(text) {
@@ -1594,7 +1682,66 @@ async confirmDeleteSocial(chatId, cityKey, placeId, socialIndex) {
         ];
         return mainMenuCommands.includes(text);
     }
+    // Добавьте этот метод
+async fixPlaceWorkingHours(chatId, placeId) {
+  try {
+    // Найти место
+    const cities = await cityManager.getAllCities();
+    let foundPlace = null;
+    let foundCity = null;
     
+    for (const city of cities) {
+      const place = await placeManager.getPlaceById(city, placeId);
+      if (place) {
+        foundPlace = place;
+        foundCity = city;
+        break;
+      }
+    }
+    
+    if (!foundPlace) {
+      await this.sendAdminMessage(chatId, '❌ Место не найдено');
+      return;
+    }
+    
+    console.log(`🔍 Исправляю рабочие часы для: ${foundPlace.name}`);
+    console.log(`📅 Исходные часы: "${foundPlace.working_hours}"`);
+    
+    // Очищаем рабочие часы
+    const cleanedHours = this.cleanWorkingHours(foundPlace.working_hours);
+    
+    console.log(`✅ Очищенные часы: "${cleanedHours}"`);
+    
+    // Обновляем место
+    const updateData = { working_hours: cleanedHours };
+    const result = await placeManager.updatePlace(foundCity, placeId, updateData);
+    
+    if (result.success) {
+      await this.sendAdminMessage(
+        chatId,
+        `✅ Рабочие часы исправлены!\n\n` +
+        `*Место:* ${foundPlace.name}\n` +
+        `*Было:* ${foundPlace.working_hours}\n` +
+        `*Стало:* ${cleanedHours}\n\n` +
+        `Попробуйте посмотреть место снова.`
+      );
+      
+      // Показываем исправленное место
+      setTimeout(async () => {
+        const cityKey = this.getCityKey(foundCity);
+        await this.showPlaceDetails(chatId, cityKey, placeId);
+      }, 1000);
+    } else {
+      await this.sendAdminMessage(chatId, `❌ Ошибка: ${result.message}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Ошибка исправления:', error);
+    await this.sendAdminMessage(chatId, `❌ Ошибка: ${error.message}`);
+  }
+}
+
+
     async handleMainMenuCommand(chatId, command, isAdmin) {
         console.log(`🔧 [handleMainMenuCommand] Обрабатываю: ${command} для ${chatId}, админ: ${isAdmin}`);
         
@@ -1996,6 +2143,8 @@ generateUberLinkImproved(place) {
   return this.generateUberSimpleLink(place);
 }
 
+
+
 // Метод для тестирования Uber ссылок
 async testUberLink(chatId, place) {
   if (!place.latitude || !place.longitude) {
@@ -2194,14 +2343,42 @@ async handleCopyCoords(chatId, latitude, longitude) {
 escapeHtml(text) {
   if (!text || typeof text !== 'string') return '';
   
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/`/g, '&#96;');
+  // Сохраняем переносы строк
+  const lines = text.split('\n');
+  const escapedLines = lines.map(line => {
+    // Обрабатываем каждую строку отдельно
+    return line
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/`/g, '&#96;')
+      // Удаляем непечатаемые символы, но сохраняем обычные пробелы и табуляции
+      .replace(/[\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F\u2000-\u200F\u2028-\u202F\u205F-\u206F\uFEFF]/g, '')
+      .trim();
+  });
+  
+  // Соединяем обратно с переносами строк
+  return escapedLines.join('\n');
 }
+
+cleanWorkingHours(text) {
+  if (!text || typeof text !== 'string') return 'не указано';
+  
+  // Сохраняем переносы строк
+  const lines = text.split('\n');
+  const cleanedLines = lines.map(line => {
+    // Удаляем непечатаемые символы, но сохраняем пробелы
+    return line
+      .replace(/[\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F\u2000-\u200F\u2028-\u202F\u205F-\u206F\uFEFF]/g, '')
+      .trim();
+  });
+  
+  // Фильтруем пустые строки и соединяем
+  return cleanedLines.filter(line => line.length > 0).join('\n');
+}
+
 async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
   try {
     const cityName = await this.getCityNameFromKey(cityKey);
@@ -2240,15 +2417,16 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       message += `<a href="${photoUrl}">​</a>`;
     }
 
-    // 🔥 ИСПРАВЛЕНИЕ: Безопасный HTML текст
+    // 🔥 ИСПРАВЛЕНИЕ: Безопасный HTML текст с полной очисткой
     const safeName = this.escapeHtml(place.name);
     const safeCategoryName = this.escapeHtml(category.name);
     const safeAddress = place.address ? this.escapeHtml(place.address) : 'не указан';
-    const safeHours = place.working_hours ? this.escapeHtml(place.working_hours) : 'не указано';
+const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hours) : 'не указано';
     const safePrice = place.average_price ? this.escapeHtml(place.average_price) : null;
     const safeDescription = place.description ? this.escapeHtml(place.description) : 'Нет описания';
     const safePhone = place.phone ? this.escapeHtml(place.phone) : null;
 
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем каждый элемент на валидность HTML
     message += `🏛️ <b>${safeName}</b>\n`;
     message += `📁 ${category.emoji} ${safeCategoryName}\n\n`;
     message += `📍 <b>Адрес:</b> ${safeAddress}\n`;
@@ -2355,7 +2533,14 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     }
 
     // ✅ КНОПКА "СКОПИРОВАТЬ НОМЕР"
-
+    if (place.phone) {
+      inlineKeyboard.inline_keyboard.push([
+        {
+          text: '📋 Скопировать телефон',
+          callback_data: `copy_phone:${cityKey}:${placeId}`
+        }
+      ]);
+    }
 
     // ✅ КНОПКА "РЕДАКТИРОВАТЬ СОЦСЕТИ" (ТОЛЬКО ДЛЯ АДМИНОВ)
     const isAdmin = this.isUserAdmin(userId);
@@ -2433,64 +2618,47 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
       return;
     }
 
-    // 📝 ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МЕСТЕ
-    // 🔥 ГЛАВНОЕ ИСПРАВЛЕНИЕ: Пробуем разные варианты разметки
+    // 📝 ПРЕДВАРИТЕЛЬНАЯ ВАЛИДАЦИЯ HTML
+    const testMessage = message.substring(0, 200) + '...';
+    console.log('🔍 [DEBUG] Тестовое сообщение (первые 200 символов):', testMessage);
+    
     try {
-      // Вариант 1: HTML разметка
+      // Проверяем HTML на валидность
+      const htmlTest = await this.testHtmlMessage(chatId, message);
+      if (!htmlTest.valid) {
+        console.error('❌ HTML невалиден, отправляю как plain text:', htmlTest.error);
+        
+        // Конвертируем HTML в plain text
+        const plainText = this.htmlToPlainText(message);
+        await this.sendAndTrack(chatId, plainText, {
+          reply_markup: inlineKeyboard,
+          disable_web_page_preview: false
+        });
+        return;
+      }
+      
+      // 📝 ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МЕСТЕ С HTML
       await this.sendAndTrack(chatId, message, {
         parse_mode: 'HTML',
         reply_markup: inlineKeyboard,
         disable_web_page_preview: false
       });
-    } catch (htmlError) {
-      console.error('❌ Ошибка при отправке с HTML:', htmlError.message);
       
+    } catch (error) {
+      console.error('❌ Ошибка при отправке с HTML:', error.message);
+      
+      // 🔥 АВАРИЙНЫЙ ВАРИАНТ: отправляем как plain text
+      const plainText = this.htmlToPlainText(message);
       try {
-        // Вариант 2: Markdown разметка (для обратной совместимости)
-        // 🔥 Сначала убираем HTML теги из сообщения
-        const plainMessage = message
-          .replace(/<[^>]*>/g, '') // Убираем HTML теги
-          .replace(/&lt;/g, '<')   // Восстанавливаем <
-          .replace(/&gt;/g, '>')   // Восстанавливаем >
-          .replace(/&amp;/g, '&')  // Восстанавливаем &
-          .replace(/&quot;/g, '"') // Восстанавливаем "
-          .replace(/&#39;/g, "'"); // Восстанавливаем '
-        
-        await this.sendAndTrack(chatId, plainMessage, {
-          parse_mode: 'Markdown',
+        await this.sendAndTrack(chatId, plainText, {
           reply_markup: inlineKeyboard,
           disable_web_page_preview: false
         });
-      } catch (markdownError) {
-        console.error('❌ Ошибка при отправке с Markdown:', markdownError.message);
+      } catch (finalError) {
+        console.error('❌ Критическая ошибка:', finalError.message);
         
-        try {
-          // Вариант 3: Без разметки вообще
-          const noFormatMessage = message
-            .replace(/<[^>]*>/g, '')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/\*/g, '')    // Убираем *
-            .replace(/_/g, '')     // Убираем _
-            .replace(/`/g, '')     // Убираем `
-            .replace(/\[/g, '')    // Убираем [
-            .replace(/\]/g, '')    // Убираем ]
-            .replace(/\(/g, '')    // Убираем (
-            .replace(/\)/g, '');   // Убираем )
-          
-          await this.sendAndTrack(chatId, noFormatMessage, {
-            reply_markup: inlineKeyboard,
-            disable_web_page_preview: false
-          });
-        } catch (finalError) {
-          console.error('❌ Ошибка при отправке без разметки:', finalError.message);
-          
-          // Последняя попытка: отправим только название и адрес
-          await this.sendAndTrack(chatId, `🏛️ ${place.name}\n📍 ${place.address || 'Адрес не указан'}`);
-        }
+        // Последняя попытка: отправляем только название и адрес
+        await this.sendAndTrack(chatId, `🏛️ ${place.name}\n📍 ${place.address || 'Адрес не указан'}`);
       }
     }
 
@@ -2502,6 +2670,61 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     console.error('❌ Stack trace:', error.stack);
     await this.sendAndTrack(chatId, '⚠️ Произошла ошибка при загрузке информации о месте.');
   }
+}
+
+// 🔥 ДОБАВИТЕ ЭТИ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+
+// Метод для тестирования HTML сообщения
+async testHtmlMessage(chatId, html) {
+  try {
+    // Отправляем тестовое сообщение самому себе
+    const testChatId = chatId; // Можно использовать специальный тестовый ID
+    const testMessage = html.substring(0, 100); // Тестируем только первые 100 символов
+    
+    await this.bot.sendMessage(testChatId, testMessage, {
+      parse_mode: 'HTML'
+    });
+    
+    return { valid: true };
+  } catch (error) {
+    return { 
+      valid: false, 
+      error: error.message,
+      position: error.response?.body?.description?.match(/offset (\d+)/)?.[1]
+    };
+  }
+}
+
+// Метод для конвертации HTML в plain text
+htmlToPlainText(html) {
+  return html
+    .replace(/<[^>]*>/g, '') // Убираем HTML теги
+    .replace(/&lt;/g, '<')   // Восстанавливаем <
+    .replace(/&gt;/g, '>')   // Восстанавливаем >
+    .replace(/&amp;/g, '&')  // Восстанавливаем &
+    .replace(/&quot;/g, '"') // Восстанавливаем "
+    .replace(/&#39;/g, "'")  // Восстанавливаем '
+    .replace(/&#96;/g, '`')  // Восстанавливаем `
+    .replace(/\n{3,}/g, '\n\n'); // Убираем множественные переносы
+}
+
+// Улучшенный метод escapeHtml с дополнительной защитой
+escapeHtml(text) {
+  if (!text || typeof text !== 'string') return '';
+  
+  // Сначала заменяем все опасные символы
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/`/g, '&#96;');
+  
+  // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Удаляем непечатаемые символы
+  const cleaned = escaped.replace(/[\u0000-\u001F\u007F-\u009F\u2000-\u200F\u2028-\u202F\u205F-\u206F\uFEFF]/g, '');
+  
+  return cleaned;
 }
   async handleCopyPhone(chatId, cityKey, placeId) {
     try {
@@ -2687,6 +2910,74 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     await this.sendAndTrack(chatId, message, { parse_mode: 'Markdown' });
   }
 
+async diagnoseCallbackIssue(chatId) {
+  try {
+    await this.sendAdminMessage(chatId, '🔍 *Диагностика callback_data*\n\nНачинаю проверку...');
+    
+    // Тестируем различные типы данных
+    const testCases = [
+      1, // число (именно эта ошибка!)
+      '1', // строка с числом
+      'select_city:moscow',
+      'edit_category_select:123',
+      'ecat:moscow:abc123:cat1',
+      null,
+      undefined,
+      true,
+      { test: 'object' },
+      [1, 2, 3]
+    ];
+    
+    let report = '🧪 *Результаты тестирования cleanCallbackData:*\n\n';
+    
+    testCases.forEach((testData, index) => {
+      const result = this.cleanCallbackData(testData);
+      report += `${index + 1}. Тип: ${typeof testData}, Значение: ${JSON.stringify(testData)}\n`;
+      report += `   Результат: "${result}"\n\n`;
+    });
+    
+    // Тестируем байтовую длину
+    report += '*Проверка длины:*\n';
+    const longTest = 'edit_category_select:очень_длинный_город_с_русскими_буквами:очень_длинный_id_категории_1234567890';
+    const longResult = this.cleanCallbackData(longTest);
+    const byteLength = Buffer.byteLength(longResult, 'utf8');
+    report += `Длинная строка: ${byteLength} байт (${byteLength > 64 ? '❌ СЛИШКОМ ДЛИННЫЙ' : '✅ OK'})\n`;
+    report += `Результат: "${longResult}"\n\n`;
+    
+    // Проверяем, какие категории загружены
+    const categories = await categoryManager.getAllCategories();
+    report += `📊 Загружено категорий: ${categories.length}\n`;
+    
+    // Проверяем ID категорий на проблемы
+    const problemCategories = [];
+    categories.forEach(cat => {
+      const cleanedId = this.cleanCallbackData(cat.id);
+      if (cleanedId !== cat.id) {
+        problemCategories.push({
+          name: cat.name,
+          originalId: cat.id,
+          cleanedId: cleanedId
+        });
+      }
+    });
+    
+    if (problemCategories.length > 0) {
+      report += `⚠️ Проблемные категории (ID изменены при очистке):\n`;
+      problemCategories.forEach(cat => {
+        report += `• ${cat.name}: ${cat.originalId} → ${cat.cleanedId}\n`;
+      });
+    } else {
+      report += `✅ Все ID категорий корректны\n`;
+    }
+    
+    await this.sendAdminMessage(chatId, report, { parse_mode: 'Markdown' });
+    
+  } catch (error) {
+    console.error('❌ Ошибка диагностики:', error);
+    await this.sendAdminMessage(chatId, `❌ Ошибка диагностики: ${error.message}`);
+  }
+}
+
   async handleCleanupCommand(msg) {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -2729,6 +3020,115 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
         await this.handleCityPhotoMessage(chatId, msg, userState);
       }
     });
+
+
+// Добавьте эту команду в setupHandlers()
+this.bot.onText(/\/diagnose/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) {
+    await this.sendAdminMessage(chatId, '❌ Команда доступна только администраторам');
+    return;
+  }
+  
+  await this.deleteLastMessage(chatId);
+  await this.diagnoseCallbackIssue(chatId);
+});
+
+// Также добавьте команду для тестирования чистки
+this.bot.onText(/\/testclean/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  
+  if (!this.isUserAdmin(userId)) return;
+  
+  const testData = [
+    'edit_category_select:1',
+    'edit_category_select:москва:123',
+    'admin_category:select:1',
+    'admin_category:select:🍕_пицца'
+  ];
+  
+  let message = '🧹 *Тест очистки callback_data:*\n\n';
+  
+  testData.forEach((data, index) => {
+    const cleaned = this.cleanCallbackData(data);
+    message += `${index + 1}. "${data}"\n   → "${cleaned}"\n\n`;
+  });
+  
+  await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
+});
+// И обработчик команды
+this.bot.onText(/\/fixhours (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const placeId = match[1];
+  
+  if (!this.isUserAdmin(userId)) return;
+  
+  await this.fixPlaceWorkingHours(chatId, placeId);
+});
+
+// Добавьте этот обработчик в конструктор
+this.bot.onText(/\/debugplace (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const placeId = match[1];
+  
+  if (!this.isUserAdmin(userId)) return;
+  
+  try {
+    // Найти место по ID
+    const cities = await cityManager.getAllCities();
+    let foundPlace = null;
+    let foundCity = null;
+    
+    for (const city of cities) {
+      const place = await placeManager.getPlaceById(city, placeId);
+      if (place) {
+        foundPlace = place;
+        foundCity = city;
+        break;
+      }
+    }
+    
+    if (!foundPlace) {
+      await this.bot.sendMessage(chatId, '❌ Место не найдено');
+      return;
+    }
+    
+    // Проверить описание на наличие проблемных символов
+    const description = foundPlace.description || '';
+    console.log('🔍 [DEBUG] Длина описания:', description.length);
+    console.log('🔍 [DEBUG] Первые 200 символов:', description.substring(0, 200));
+    
+    // Проверить на непечатаемые символы
+    const nonPrintable = description.match(/[\u0000-\u001F\u007F-\u009F\u2000-\u200F\u2028-\u202F\u205F-\u206F\uFEFF]/g);
+    if (nonPrintable) {
+      console.log('❌ Найдены непечатаемые символы:', nonPrintable.map(c => c.charCodeAt(0)));
+    }
+    
+    // Показать информацию о месте
+    await this.bot.sendMessage(
+      chatId,
+      `🔍 *Debug Info: ${foundPlace.name}*\n\n` +
+      `ID: \`${foundPlace.id}\`\n` +
+      `Город: ${foundCity}\n` +
+      `Описание (длина): ${description.length} символов\n` +
+      `Непечатаемые символы: ${nonPrintable ? 'ДА' : 'НЕТ'}\n\n` +
+      `Тестирую HTML...`
+    );
+    
+    // Протестировать отправку
+    const cityKey = this.getCityKey(foundCity);
+    await this.showPlaceDetails(chatId, cityKey, foundPlace.id, userId);
+    
+  } catch (error) {
+    console.error('❌ Ошибка debug:', error);
+    await this.bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
+  }
+});
 
 // Команда принудительной синхронизации
 this.bot.onText(/\/forcesync/, async (msg) => {
@@ -3168,58 +3568,92 @@ this.bot.on('message', async (msg) => {
     );
 });
     // ============ ОБРАБОТЧИК CALLBACK_QUERY ============
-    this.bot.on('callback_query', async (callbackQuery) => {
-      const chatId = callbackQuery.message.chat.id;
-      const userId = callbackQuery.from.id;
-      const data = callbackQuery.data;
-      const isAdmin = this.isUserAdmin(userId);
-      const messageId = callbackQuery.message.message_id;
-      
-      console.log(`📱 Callback от ${userId}: ${data}`);
-      console.log(`🔍 [DEBUG] Полный callback_data: "${data}"`);
-      
-      try {
-        // СРАЗУ отвечаем на callback_query
-        await this.bot.answerCallbackQuery(callbackQuery.id);
-        
-        if (!data || typeof data !== 'string') {
-          console.error('❌ Пустой или некорректный callback_data');
-          return;
-        }
-        
-        const parts = data.split(':');
-        console.log(`🔍 [DEBUG] Разбитые части:`, parts);
-        const action = parts[0];
-        const params = parts.slice(1);
-        
-        console.log(`🔍 [DEBUG] Action: ${action}, Params:`, params);
-        
-        // Ограничиваем максимальное время обработки 8 секундами
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Таймаут обработки callback')), 8000);
-        });
-        
-        // Запускаем обработку с таймаутом
-        await Promise.race([
-          this.processCallbackAction(chatId, userId, action, params, messageId, isAdmin),
-          timeoutPromise
-        ]);
-        
-      } catch (error) {
-        console.error(`❌ Ошибка обработки callback для ${userId}: ${error.message}`);
-        
-        if (error.message !== 'Таймаут обработки callback') {
-          try {
-            await this.bot.sendMessage(
-              chatId,
-              '⚠️ Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз.'
-            );
-          } catch (sendError) {
-            console.error(`❌ Не удалось отправить сообщение об ошибке: ${sendError.message}`);
-          }
-        }
+ this.bot.on('callback_query', async (callbackQuery) => {
+  const chatId = callbackQuery.message.chat.id;
+  const userId = callbackQuery.from.id;
+  const data = callbackQuery.data;
+  const isAdmin = this.isUserAdmin(userId);
+  const messageId = callbackQuery.message.message_id;
+  
+  console.log(`📱 Callback от ${userId}: ${data}`);
+  console.log(`🔍 [DEBUG] Полный callback_data: "${data}"`, typeof data);
+  
+  try {
+    // ✅ ИСПРАВЛЕНИЕ: Сначала преобразуем data в строку, если это необходимо
+    let callbackData = data;
+    if (typeof callbackData !== 'string') {
+      if (typeof callbackData === 'number') {
+        callbackData = callbackData.toString();
+        console.log(`🔍 [DEBUG] Преобразовано число в строку: ${callbackData}`);
+      } else if (callbackData === null || callbackData === undefined) {
+        console.error('❌ callback_data равно null или undefined');
+        await this.bot.answerCallbackQuery(callbackQuery.id, { text: '❌ Ошибка: пустой callback' });
+        return;
+      } else {
+        callbackData = String(callbackData);
+        console.log(`🔍 [DEBUG] Преобразовано ${typeof data} в строку: ${callbackData}`);
       }
+    }
+    
+    // СРАЗУ отвечаем на callback_query
+    await this.bot.answerCallbackQuery(callbackQuery.id);
+    
+    if (!callbackData || callbackData.trim() === '') {
+      console.error('❌ Пустой или некорректный callback_data');
+      return;
+    }
+    
+    const parts = callbackData.split(':');
+    console.log(`🔍 [DEBUG] Разбитые части:`, parts);
+    
+    // ✅ ИСПРАВЛЕНИЕ: Очищаем и преобразуем каждую часть
+const cleanedParams = parts.slice(1).map(param => {
+  // Преобразуем параметры в строку и очищаем
+  let paramStr;
+  if (typeof param === 'number') {
+    paramStr = param.toString();
+  } else if (typeof param === 'string') {
+    paramStr = param;
+  } else if (param === undefined || param === null) {
+    paramStr = '';
+  } else {
+    paramStr = String(param);
+  }
+  return this.cleanCallbackData(paramStr);
+});
+
+// ✅ ИСПРАВЛЕНИЕ: Убедимся, что action тоже строка
+const action = this.cleanCallbackData(parts[0] || '');
+    
+    console.log(`🔍 [DEBUG] Action: ${action}, Params:`, cleanedParams);
+    
+    // Ограничиваем максимальное время обработки 8 секундами
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Таймаут обработки callback')), 8000);
     });
+    
+    // Запускаем обработку с таймаутом
+    await Promise.race([
+      this.processCallbackActionInternal(chatId, userId, action, cleanedParams, messageId, isAdmin),
+      timeoutPromise
+    ]);
+    
+  } catch (error) {
+    console.error(`❌ Ошибка обработки callback для ${userId}:`, error.message);
+    console.error('❌ Stack trace:', error.stack);
+    
+    if (error.message !== 'Таймаут обработки callback') {
+      try {
+        await this.bot.sendMessage(
+          chatId,
+          '⚠️ Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз.'
+        );
+      } catch (sendError) {
+        console.error(`❌ Не удалось отправить сообщение об ошибке: ${sendError.message}`);
+      }
+    }
+  }
+});
 
     // Обработчики команд с использованием добавленных методов
     this.bot.onText(/\/myid/, (msg) => this.handleMyIdCommand(msg));
@@ -3351,350 +3785,491 @@ this.bot.onText(/\/testmain/, async (msg) => {
     }
   }
 
-  // ============ ОБРАБОТКА CALLBACK ДЕЙСТВИЙ ============
-  async processCallbackAction(chatId, userId, action, params, messageId, isAdmin) {
-    console.log(`🔧 Обработка action: ${action} с параметрами: ${params}`);
+
+// Метод для обработки выбора категории с короткими ID
+async handleEditCategorySelectShort(chatId, cityKey, shortPlaceId, shortCategoryId) {
+  try {
+    console.log(`🔍 [handleEditCategorySelectShort] Параметры:`, {
+      cityKey,
+      shortPlaceId,
+      shortCategoryId
+    });
     
-    switch(action) {
-      case 'select_city':
-        await this.handleCitySelection(chatId, params[0], isAdmin);
-        break;
-        
-      case 'select_category':
-        await this.showPlacesByCategory(chatId, params[0], params[1]);
-        break;
-        
-      case 'copy_coords':
-        await this.handleCopyCoords(chatId, params[0], params[1]);
-        break;
+    // Получаем полное название города
+    const cityName = await this.getCityNameFromKey(cityKey);
+    
+    // Находим полный ID места по короткому
+    const places = await placeManager.getPlacesByCity(cityName);
+    const place = places.find(p => p.id.startsWith(shortPlaceId));
+    
+    if (!place) {
+      await this.sendAdminMessage(chatId, '❌ Место не найдено.');
+      return;
+    }
+    
+    // Получаем все категории
+    const categories = await categoryManager.getAllCategories();
+    
+    // Создаем маппинг коротких ID на полные
+    const categoryMap = {};
+    categories.forEach(cat => {
+      const shortId = require('crypto')
+        .createHash('md5')
+          .update(String(cat.id))  
+        .digest('hex')
+        .substring(0, 4);
+      categoryMap[shortId] = cat.id;
+    });
+    
+    // Находим полный ID категории
+    const fullCategoryId = categoryMap[shortCategoryId];
+    
+    if (!fullCategoryId) {
+      await this.sendAdminMessage(chatId, '❌ Категория не найдена.');
+      return;
+    }
+    
+    // Получаем данные категории для сообщения
+    const category = await categoryManager.getCategoryById(fullCategoryId);
+    
+    // Обновляем категорию места
+    const updateData = { 
+      category_id: fullCategoryId,
+      category_name: category.name,
+      category_emoji: category.emoji
+    };
+    
+    console.log(`📝 Обновляю категорию места ${place.id}:`, updateData);
+    
+    const result = await placeManager.updatePlace(cityName, place.id, updateData);
+    
+    if (result.success) {
+      await this.sendAdminMessage(
+        chatId,
+        `✅ Категория успешно изменена!\n\n` +
+        `🏛️ *Место:* ${place.name}\n` +
+        `📁 *Новая категория:* ${category.emoji} ${category.name}`,
+        { parse_mode: 'Markdown' }
+      );
+      
+      // Возвращаемся к редактированию места
+      setTimeout(async () => {
+        await this.showPlaceEditOptions(chatId, cityKey, place.id);
+      }, 1000);
+    } else {
+      await this.sendAdminMessage(chatId, `❌ Ошибка: ${result.message}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Ошибка при изменении категории:', error);
+    await this.sendAdminMessage(chatId, `❌ Произошла ошибка: ${error.message}`);
+  }
+}
 
-
-        case 'copy_phone':
-        await this.handleCopyPhone(chatId, params[0], params[1]);
-        break;
-
-      case 'edit_social':
-  await this.handleEditSocialLinks(chatId, params[0], params[1]);
-  break;
-
-      case 'edit_social_field':
-  await this.handleEditSocialField(chatId, params[0], params[1], params[2]);
-  break;
-
-case 'confirm_delete_social':
-  await this.confirmDeleteSocial(chatId, params[0], params[1], decodeURIComponent(params[2]));
-  break;
-
-case 'edit_social_item':
-  await this.handleEditSocialItem(chatId, params[0], params[1], decodeURIComponent(params[2]));
-  break;
-
-case 'delete_social_item':
-  await this.handleDeleteSocialItem(chatId, params[0], params[1], decodeURIComponent(params[2]));
-  break;
-
-      case 'show_place':
-  await this.showPlaceDetails(chatId, params[0], params[1], userId);
-        break;
-        
-      case 'admin_action':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        // Устанавливаем флаг админ-сессии для админ-действий
-        this.adminSessions.set(chatId, true);
-        
-        // Обрабатываем параметры для admin_action
-        // params[0] = действие, params[1] = дополнительный параметр (например, cityKey)
-        if (params.length > 1) {
-          await this.handleAdminAction(chatId, params[0], params[1], messageId);
-        } else {
-          await this.handleAdminAction(chatId, params[0], null, messageId);
-        }
-        break;
-        
-      case 'admin_city':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        
-        console.log(`🏙️ Admin city action received: action=${params[0]}, cityKey=${params[1]}`);
-        
-        // Проверяем, что есть все необходимые параметры
-        if (!params[0] || !params[1]) {
-          console.error('❌ Недостаточно параметров для admin_city:', params);
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Ошибка при обработке запроса. Недостаточно данных.'
-          );
-          return;
-        }
-        
-        this.adminSessions.set(chatId, true);
-        await this.handleAdminCityAction(chatId, params[0], params[1], messageId);
-        break;
-        
-      case 'admin_category':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleCategoryCallback(chatId, userId, params[0], params.slice(1), messageId);
-        break;
-        
-      case 'admin_categories':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleCategoriesManagement(chatId, params[0], params[1], messageId);
-        break;
-        
-      case 'back':
-        // Сбрасываем админ-сессию при возврате в главное меню
-        if (params[0] === 'main_menu') {
-          this.adminSessions.delete(chatId);
-        }
-        await this.handleBackAction(chatId, params[0], isAdmin);
-        break;
-        
-      case 'category_header':
-        // Просто обрабатываем, без дополнительных действий
-        break;
-        
-      case 'edit_place_select':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.'
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        // Используем новый метод вместо handleEditPlaceSelect
-        await this.showPlaceEditOptions(chatId, params[0], params[1]);
-  break;
-        
-      case 'edit_category_select':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleEditCategorySelect(chatId, params[0], messageId);
-        break;
-        
-      case 'edit_category_field':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleEditCategoryField(chatId, params[0], params[1], messageId);
-        break;
-        
-      case 'e_f':  // edit_place_field сокращенное
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        
-        console.log(`🔍 [DEBUG] e_f params:`, params);
-        
-        if (params.length < 3) {
-          console.error('❌ Недостаточно параметров для e_f:', params);
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Ошибка: недостаточно данных для редактирования.'
-          );
-          return;
-        }
-        
-        // Маппинг сокращенных имен полей на полные
-        const fieldMap = {
-          'n': 'name',
-          'a': 'address',
-          't': 'working_hours',
-          'p': 'average_price',
-          'd': 'description',
-          'w': 'website',
-          'ph': 'phone',
-          'm': 'map_url',
-          'c': 'category_id',
-          'del': 'delete',
-          'confirm_delet': 'confirm_delet',
-          'lat': 'latitude',
-          'lon': 'longitude',
-          'gpid': 'google_place_id'
-        };
-        
-        const shortField = params[2];
-        const fullField = fieldMap[shortField];
-        
-        if (!fullField) {
-          console.error('❌ Неизвестное сокращение поля:', shortField);
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Ошибка: неизвестное поле для редактирования.'
-          );
-          return;
-        }
-        
-        // Получаем полный ID места по короткому
-        const cityName = await this.getCityNameFromKey(params[0]);
-        const places = await placeManager.getPlacesByCity(cityName);
-        
-        // Ищем место по началу ID
-        const fullPlaceId = places.find(p => p.id.startsWith(params[1]))?.id;
-        
-        if (!fullPlaceId) {
-          console.error(`❌ Не найден полный ID места для короткого: ${params[1]}`);
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Ошибка: место не найдено.'
-          );
-          return;
-        }
-        
-        this.adminSessions.set(chatId, true);
-        await this.handleEditPlaceField(chatId, params[0], fullPlaceId, fullField, messageId);
-        break;
-        
-      case 'delete_category_confirm':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleDeleteCategoryConfirm(chatId, params[0], params[1], messageId);
-        break;
-        
-      case 'delete_category_cancel':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.showCategoryManagement(chatId);
-        break;
-        
-      case 'edit_category_select':
-        if (!isAdmin) {
-          await this.bot.sendMessage(
-            chatId,
-            '❌ У вас нет доступа к этой функции.',
-            { reply_to_message_id: messageId }
-          );
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleEditCategorySelect(chatId, params[0], params[1], params[2], messageId);
-        break;
-        
-      // ✅ НОВЫЕ CASES ДЛЯ ОБРАБОТКИ СООБЩЕНИЙ О ПРОБЛЕМАХ
-      case 'report_issue':
-        await this.showIssueOptions(chatId, params[0], params[1]);
-        break;
-        
-      case 'issue':
-        // params[0] = cityKey, params[1] = placeId, params[2] = issueType
-        await this.handleIssueReport(chatId, params[0], params[1], params[2]);
-        break;
-
-      case 'admin_ads':
-        if (!isAdmin) {
-          await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleAdsManagement(chatId, params[0]);
-        break;
-        
-      case 'edit_ad_select':
-        if (!isAdmin) {
-          await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleEditAdSelect(chatId, params[0]);
-        break;
-        
-      case 'edit_ad_field':
-        if (!isAdmin) {
-          await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleEditAdField(chatId, params[0], params[1]);
-        break;
-        
-      case 'delete_ad_confirm':
-        if (!isAdmin) {
-          await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.handleDeleteAdConfirm(chatId, params[0]);
-        break;
-        
-      case 'delete_ad_execute':
-        if (!isAdmin) {
-          await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
-          return;
-        }
-        this.adminSessions.set(chatId, true);
-        await this.executeDeleteAd(chatId, params[0]);
-        break;
-
-      default:
-        console.warn(`⚠️ Неизвестный action: ${action}`);
+  // ============ ОБРАБОТКА CALLBACK ДЕЙСТВИЙ ============
+async processCallbackAction(chatId, userId, action, params, messageId, isAdmin) {
+  console.log(`📱 Callback от ${userId}: ${data}`);
+  console.log(`🔍 [DEBUG] Полный callback_data: "${data}"`);
+  
+  try {
+    // СРАЗУ отвечаем на callback_query
+    await this.bot.answerCallbackQuery(callbackQuery.id);
+    
+    if (!data || typeof data !== 'string') {
+      console.error('❌ Пустой или некорректный callback_data');
+      return;
+    }
+    
+    const parts = data.split(':');
+    console.log(`🔍 [DEBUG] Разбитые части:`, parts);
+    
+    // ✅ ИСПРАВЛЕНИЕ: Очищаем и преобразуем каждую часть
+    const action = this.cleanCallbackData(parts[0] || '');
+    const params = parts.slice(1).map(param => {
+      // Преобразуем параметры в строку и очищаем
+      let paramStr;
+      if (typeof param === 'number') {
+        paramStr = param.toString();
+      } else if (typeof param === 'string') {
+        paramStr = param;
+      } else if (param === undefined || param === null) {
+        paramStr = '';
+      } else {
+        paramStr = String(param);
+      }
+      return this.cleanCallbackData(paramStr);
+    });
+    
+    console.log(`🔍 [DEBUG] Action: ${action}, Params:`, params);
+    
+    // Ограничиваем максимальное время обработки 8 секундами
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Таймаут обработки callback')), 8000);
+    });
+    
+    // Запускаем обработку с таймаутом
+    await Promise.race([
+      this.processCallbackActionInternal(chatId, userId, action, params, messageId, isAdmin),
+      timeoutPromise
+    ]);
+    
+  } catch (error) {
+    console.error(`❌ Ошибка обработки callback для ${userId}: ${error.message}`);
+    
+    if (error.message !== 'Таймаут обработки callback') {
+      try {
         await this.bot.sendMessage(
           chatId,
-          '⚠️ Неизвестная команда. Пожалуйста, попробуйте еще раз.',
-          { reply_to_message_id: messageId }
+          '⚠️ Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз.'
         );
+      } catch (sendError) {
+        console.error(`❌ Не удалось отправить сообщение об ошибке: ${sendError.message}`);
+      }
     }
   }
+}
+
+// ✅ НОВЫЙ МЕТОД: Внутренняя обработка callback actions
+async processCallbackActionInternal(chatId, userId, action, params, messageId, isAdmin) {
+  console.log(`🔧 [processCallbackActionInternal] Action: ${action} с параметрами: ${params}`);
+  
+  switch(action) {
+    case 'select_city':
+      await this.handleCitySelection(chatId, params[0], isAdmin);
+      break;
+      
+    case 'select_category':
+      await this.showPlacesByCategory(chatId, params[0], params[1]);
+      break;
+      
+    case 'copy_coords':
+      await this.handleCopyCoords(chatId, params[0], params[1]);
+      break;
+
+    case 'copy_phone':
+      await this.handleCopyPhone(chatId, params[0], params[1]);
+      break;
+
+    case 'edit_social':
+      await this.handleEditSocialLinks(chatId, params[0], params[1]);
+      break;
+
+    case 'edit_social_field':
+      await this.handleEditSocialField(chatId, params[0], params[1], params[2]);
+      break;
+
+    case 'confirm_delete_social':
+      await this.confirmDeleteSocial(chatId, params[0], params[1], decodeURIComponent(params[2]));
+      break;
+
+    case 'edit_social_item':
+      await this.handleEditSocialItem(chatId, params[0], params[1], decodeURIComponent(params[2]));
+      break;
+
+    case 'delete_social_item':
+      await this.handleDeleteSocialItem(chatId, params[0], params[1], decodeURIComponent(params[2]));
+      break;
+
+    case 'show_place':
+      await this.showPlaceDetails(chatId, params[0], params[1], userId);
+      break;
+      
+    case 'admin_action':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      
+      if (params.length > 1) {
+        await this.handleAdminAction(chatId, params[0], params[1], messageId);
+      } else {
+        await this.handleAdminAction(chatId, params[0], null, messageId);
+      }
+      break;
+      
+    case 'admin_city':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      
+      console.log(`🏙️ Admin city action received: action=${params[0]}, cityKey=${params[1]}`);
+      
+      if (!params[0] || !params[1]) {
+        console.error('❌ Недостаточно параметров для admin_city:', params);
+        await this.sendAdminMessage(
+          chatId,
+          '❌ Ошибка при обработке запроса. Недостаточно данных.'
+        );
+        return;
+      }
+      
+      this.adminSessions.set(chatId, true);
+      await this.handleAdminCityAction(chatId, params[0], params[1], messageId);
+      break;
+      
+    case 'admin_category':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleCategoryCallback(chatId, userId, params[0], params.slice(1), messageId);
+      break;
+      
+    case 'admin_categories':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleCategoriesManagement(chatId, params[0], params[1], messageId);
+      break;
+      
+    case 'back':
+      // Сбрасываем админ-сессию при возврате в главное меню
+      if (params[0] === 'main_menu') {
+        this.adminSessions.delete(chatId);
+      }
+      await this.handleBackAction(chatId, params[0], isAdmin);
+      break;
+      
+    case 'category_header':
+      // Просто обрабатываем, без дополнительных действий
+      break;
+      
+    case 'edit_place_select':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.'
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.showPlaceEditOptions(chatId, params[0], params[1]);
+      break;
+        
+    case 'edit_category_select':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleEditCategorySelect(chatId, params[0], messageId);
+      break;
+      
+    case 'edit_category_field':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleEditCategoryField(chatId, params[0], params[1], messageId);
+      break;
+      
+    case 'e_f':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      
+      console.log(`🔍 [DEBUG] e_f params:`, params);
+      
+      if (params.length < 3) {
+        console.error('❌ Недостаточно параметров для e_f:', params);
+        await this.sendAdminMessage(
+          chatId,
+          '❌ Ошибка: недостаточно данных для редактирования.'
+        );
+        return;
+      }
+      
+      const fieldMap = {
+        'n': 'name',
+        'a': 'address',
+        't': 'working_hours',
+        'p': 'average_price',
+        'd': 'description',
+        'w': 'website',
+        'ph': 'phone',
+        'm': 'map_url',
+        'c': 'category_id',
+        'del': 'delete',
+        'confirm_delet': 'confirm_delet',
+        'lat': 'latitude',
+        'lon': 'longitude',
+        'gpid': 'google_place_id'
+      };
+      
+      const shortField = params[2];
+      const fullField = fieldMap[shortField];
+      
+      if (!fullField) {
+        console.error('❌ Неизвестное сокращение поля:', shortField);
+        await this.sendAdminMessage(
+          chatId,
+          '❌ Ошибка: неизвестное поле для редактирования.'
+        );
+        return;
+      }
+      
+      const cityName = await this.getCityNameFromKey(params[0]);
+      const places = await placeManager.getPlacesByCity(cityName);
+      
+      const fullPlaceId = places.find(p => p.id.startsWith(params[1]))?.id;
+      
+      if (!fullPlaceId) {
+        console.error(`❌ Не найден полный ID места для короткого: ${params[1]}`);
+        await this.sendAdminMessage(
+          chatId,
+          '❌ Ошибка: место не найдено.'
+        );
+        return;
+      }
+      
+      this.adminSessions.set(chatId, true);
+      await this.handleEditPlaceField(chatId, params[0], fullPlaceId, fullField, messageId);
+      break;
+      
+    case 'delete_category_confirm':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleDeleteCategoryConfirm(chatId, params[0], params[1], messageId);
+      break;
+      
+    case 'delete_category_cancel':
+      if (!isAdmin) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ У вас нет доступа к этой функции.',
+          { reply_to_message_id: messageId }
+        );
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.showCategoryManagement(chatId);
+      break;
+      
+    case 'report_issue':
+      await this.showIssueOptions(chatId, params[0], params[1]);
+      break;
+      
+    case 'issue':
+      // params[0] = cityKey, params[1] = placeId, params[2] = issueType
+      await this.handleIssueReport(chatId, params[0], params[1], params[2]);
+      break;
+
+    case 'admin_ads':
+      if (!isAdmin) {
+        await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleAdsManagement(chatId, params[0]);
+      break;
+      
+    case 'edit_ad_select':
+      if (!isAdmin) {
+        await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleEditAdSelect(chatId, params[0]);
+      break;
+      
+    case 'edit_ad_field':
+      if (!isAdmin) {
+        await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleEditAdField(chatId, params[0], params[1]);
+      break;
+      
+    case 'delete_ad_confirm':
+      if (!isAdmin) {
+        await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.handleDeleteAdConfirm(chatId, params[0]);
+      break;
+      
+    case 'delete_ad_execute':
+      if (!isAdmin) {
+        await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
+        return;
+      }
+      this.adminSessions.set(chatId, true);
+      await this.executeDeleteAd(chatId, params[0]);
+      break;
+      
+    // ✅ НОВЫЙ CASE ДЛЯ ОБРАБОТКИ СОКРАЩЕННЫХ CALLBACK ДЛЯ КАТЕГОРИЙ
+case 'ecat':
+  if (!isAdmin) {
+    await this.bot.sendMessage(chatId, '❌ У вас нет доступа к этой функции.');
+    return;
+  }
+  
+  console.log(`📁 [DEBUG ecat] Обработка выбора категории:`, params);
+  
+  // ✅ ДОБАВЬТЕ ПРОВЕРКУ: Убедитесь, что params[2] существует
+  if (params.length < 3 || !params[2]) {
+    console.error('❌ Недостаточно параметров для ecat:', params);
+    await this.sendAdminMessage(chatId, '❌ Ошибка: недостаточно данных для выбора категории.');
+    return;
+  }
+  
+  this.adminSessions.set(chatId, true);
+  await this.handleEditCategorySelectShort(chatId, params[0], params[1], params[2]);
+  break;
+
+    default:
+      console.warn(`⚠️ Неизвестный action: ${action}`);
+      await this.bot.sendMessage(
+        chatId,
+        '⚠️ Неизвестная команда. Пожалуйста, попробуйте еще раз.',
+        { reply_to_message_id: messageId }
+      );
+  }
+}
 
 // Метод тестирования Uber
 async testUberLink(chatId, place) {
@@ -6933,9 +7508,69 @@ async handleEditPlaceField(chatId, cityKey, placeId, field, messageId) {
     return;
   }
 
-  // Редактирование поля
+  // Редактирование поля категории - ПОЛНОСТЬЮ ИЗМЕНЕННЫЙ КОД
+  if (field === 'category_id') {
+    const categories = await categoryManager.getAllCategories();
+    
+    let message = `✏️ *Выбор новой категории*\n\n`;
+    message += `*Место:* ${place.name}\n`;
+    message += `*Текущая категория:* ${place.category_emoji || ''} ${place.category_name || 'не указана'}\n\n`;
+    message += `Выберите новую категорию:`;
+    
+    const inlineKeyboardForCategory = {
+      inline_keyboard: []
+    };
+    
+// ✅ ИСПРАВЛЕНИЕ 1: Используем сокращенные ID категорий
+// Маппинг полных ID категорий на короткие
+const categoryShortIds = {};
+categories.forEach((cat, index) => {
+  // Создаем короткий ID (первые 4 символа MD5 хеша)
+  const shortId = require('crypto')
+    .createHash('md5')
+    .update(String(cat.id))  // ✅ ПРЕОБРАЗУЕМ В СТРОКУ
+    .digest('hex')
+    .substring(0, 4);
+  categoryShortIds[cat.id] = shortId;
+});
+    
+    // Группируем категории по 2 в ряд
+    for (let i = 0; i < categories.length; i += 2) {
+      const row = categories.slice(i, i + 2).map(cat => {
+        // ✅ ИСПРАВЛЕНИЕ 2: Используем короткие callback_data
+        const shortCatId = categoryShortIds[cat.id];
+        const callbackData = `ecat:${cityKey}:${placeId.substring(0, 8)}:${shortCatId}`;
+        
+        // ✅ ИСПРАВЛЕНИЕ 3: Очищаем callback_data
+        const cleanCallbackData = this.cleanCallbackData(callbackData);
+        
+        return {
+          text: `${cat.emoji} ${this.cleanButtonText(cat.name)}`,
+          callback_data: cleanCallbackData
+        };
+      });
+      inlineKeyboardForCategory.inline_keyboard.push(row);
+    }
+    
+    // Кнопка "Назад" с очищенным callback_data
+    inlineKeyboardForCategory.inline_keyboard.push([
+      { 
+        text: '🔙 Назад', 
+        callback_data: this.cleanCallbackData(`edit_place_select:${cityKey}:${placeId}`)
+      }
+    ]);
+    
+    // ✅ ИСПРАВЛЕНИЕ 4: Обязательно чистим всю клавиатуру
+    this.cleanInlineKeyboard(inlineKeyboardForCategory);
+    
+    await this.bot.sendMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: inlineKeyboardForCategory
+    });
+    return;
+  }
 
-
+  // Редактирование других полей (остается без изменений)
   const currentValue = place[field] || 'не указано';
 
   // Сохраняем состояние для следующего шага
@@ -6972,35 +7607,6 @@ async handleEditPlaceField(chatId, cityKey, placeId, field, messageId) {
       message += `Facebook: https://facebook.com/place\n\n`;
       message += `Для удаления всех соцсетей отправьте "-":`;
       break;
-      
-    case 'category_id':
-      message += `Выберите новую категорию:`;
-      
-      const categories = await categoryManager.getAllCategories();
-      const inlineKeyboardForCategory = {
-        inline_keyboard: []
-      };
-      
-      for (let i = 0; i < categories.length; i += 2) {
-        const row = categories.slice(i, i + 2).map(cat => ({
-          text: `${cat.emoji} ${this.cleanButtonText(cat.name)}`,
-          callback_data: `edit_category_select:${cityKey}:${placeId}:${cat.id}`
-        }));
-        inlineKeyboardForCategory.inline_keyboard.push(row);
-      }
-      
-      inlineKeyboardForCategory.inline_keyboard.push([
-        { 
-          text: '🔙 Назад', 
-          callback_data: `edit_place_select:${cityKey}:${placeId}` 
-        }
-      ]);
-      
-      await this.bot.sendMessage(chatId, message, {
-        parse_mode: 'Markdown',
-        reply_markup: inlineKeyboardForCategory
-      });
-      return;
       
     case 'latitude':
     case 'longitude':

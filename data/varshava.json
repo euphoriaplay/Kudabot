@@ -9,77 +9,407 @@
   },
   "places": [
     {
-      "address": "олаптрадлорадлор",
-      "average_price": "1245",
-      "category_emoji": "🇬🇧",
-      "category_id": "1",
-      "category_name": "Английская",
+      "address": "Zielna 37, 00-108 Warszawa, Польша",
+      "average_price": "150 zł",
+      "category_emoji": "💨",
+      "category_id": "11",
+      "category_name": "Кальян",
       "city_id": "",
       "city_name": "Варшава",
-      "created_at": "2026-02-03T00:03:01.571Z",
-      "description": "тпрльрпдрльепнрлдьерлоеьто",
-      "google_place_id": "0xd604f2481d4cd31:0x65666615af52b354",
-      "id": "661b19af-bf7b-408f-83b9-2c01ba998147",
-      "latitude": 39.4522683,
-      "longitude": -0.3889157,
-      "map_url": "https://www.google.com/maps/place/GAES+Centre+Auditiu+Valencia+Carteros/@39.453179,-0.3872877,16.33z/data=!4m6!3m5!1s0xd604f2481d4cd31:0x65666615af52b354!8m2!3d39.4522683!4d-0.3889157!16s%2Fg%2F1q67vrdxk?entry=ttu&g_ep=EgoyMDI2MDEyOC4wIKXMDSoASAFQAw%3D%3D",
-      "name": "лдптоадвлтп",
-      "phone": "+34963444505",
+      "created_at": "2026-02-05T22:48:08.253Z",
+      "description": "«Выбор сделан и он прекрасен!»",
+      "google_place_id": "0x471ecd7682e946bb:0xc3102bab4153f38e",
+      "id": "d5cb2000-2b9c-4953-a108-577b2e05880f",
+      "latitude": 52.236178,
+      "longitude": 21.006399,
+      "map_url": "https://www.google.com/maps/place/INSPECTOR+LOUNGE+by+Inspector+GG/@52.2361813,21.0038241,17z/data=!3m2!4b1!5s0x471ecc8a4948a8df:0x62625e28f7b44993!4m6!3m5!1s0x471ecd7682e946bb:0xc3102bab4153f38e!8m2!3d52.236178!4d21.006399!16s%2Fg%2F11sdzznj5f?entry=ttu&g_ep=EgoyMDI2MDIwMS4wIKXMDSoKLDEwMDc5MjA3M0gBUAM%3D",
+      "name": "Inspector Lounge",
+      "phone": "+48 793 977 777",
       "photos": [
         {
-          "fileName": "photo_1770076979868_ry6k9e.jpg",
-          "telegramFileId": "AgACAgIAAxkBAAIIvGmBOzGqwfe7GUHWulDLM_TS3eMvAAIqDmsbeDMJSHTTut3ppWnMAQADAgADeQADOAQ",
-          "uploadedAt": "2026-02-03T00:03:01.068Z",
-          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770076979868_ry6k9e.jpg"
+          "fileName": "photo_1770331687361_ypr616.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIV9WmFHiEvEAYOzDeL_wSzAwq-M5tfAAI1DWsbPzQoSLMNgS_iBy7iAQADAgADeQADOAQ",
+          "uploadedAt": "2026-02-05T22:48:07.752Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770331687361_ypr616.jpg"
         }
       ],
       "social_links": {
-        "https": "https://www.facebook.com/GAESCentrosAuditivos"
+        "https": "https://www.instagram.com/inspector_lounge"
       },
-      "updated_at": "2026-02-03T00:03:01.571Z",
-      "website": "https://www.speedtest.net/ru",
-      "working_hours": "24"
+      "updated_at": "2026-02-05T22:48:08.253Z",
+      "website": "https://inspectorlounge.choiceqr.com/section:menu",
+      "working_hours": "вс-чт 10:00-01:00\nпт-сб 10:00-03:00"
     },
     {
-      "address": "джлапорадлортапжлрьарщз",
-      "average_price": "12354445",
-      "category_emoji": "🇨🇳",
-      "category_id": "30",
-      "category_name": "Китайская",
+      "address": "Górnośląska 24, 00-484 Warszawa",
+      "average_price": "200zł",
+      "category_emoji": "🇮🇹",
+      "category_id": "28",
+      "category_name": "Итальянская",
       "city_id": "",
       "city_name": "Варшава",
-      "created_at": "2026-02-03T00:08:36.308Z",
-      "description": "олджшлдшщолдшжзщжлдджл",
-      "id": "fa9a83fd-7367-4c01-81f3-47358fcf3bf1",
-      "name": "полвпшщворповта",
-      "updated_at": "2026-02-03T00:13:43.091Z",
-      "working_hours": "12"
+      "created_at": "2026-02-06T19:24:29.487Z",
+      "description": "Мы — настоящий итальянский ресторан, и наше сердце — Le Braci, что означает жар и огонь",
+      "google_place_id": "0x471ecd8ee147411f:0xd44bcc8f29720125",
+      "id": "e5b0437a-03f8-40fa-8be1-ba2a1c900f12",
+      "latitude": 52.224413,
+      "longitude": 21.0287939,
+      "map_url": "https://maps.app.goo.gl/UTt5aivgeVqv15Ro8",
+      "name": "Restaurant Le Braci",
+      "phone": "+48 505 781 202",
+      "photos": [
+        {
+          "fileName": "photo_1770405868498_f17ss9.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIWl2mGP64X3PpTjcmBiTZvdt2C4-FiAAIvFmsbY4wxSG_Ar5_-8dMeAQADAgADeQADOAQ",
+          "uploadedAt": "2026-02-06T19:24:28.985Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770405868498_f17ss9.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/le_braci"
+      },
+      "updated_at": "2026-02-06T19:24:29.487Z",
+      "website": "https://lebraci.pl/?utm_source=ig&utm_medium=social&utm_content=link_in_bio&fbclid=PAdGRleAPzGStleHRuA2FlbQIxMQBzcnRjBmFwcF9pZA8xMjQwMjQ1NzQyODc0MTQAAackgfqKgQZF8ivMUGclxZd1l1JIndEKWFTup3waTm1UNBvzew-YnO9ahaVs9w_aem_0U-xqmrgDFxc8ESgD6iK_w",
+      "working_hours": "вт-пт 12:00-15:30 / 17:00-22:00\nсб 13:00-22:00\nвс 13:00-20:00\nпн - закрыто"
     },
     {
-      "id": "203c7934-6623-4995-b081-fc3809c34845",
-      "name": "пваплдопртивап",
-      "address": "влдпорвапшпгравплоарвпт",
-      "working_hours": "12",
-      "average_price": "123984",
-      "description": "gol;knmfggl;jkfjgngh;ljkfgjgh",
-      "category_id": "6",
-      "category_name": "Гриль",
-      "category_emoji": "🔥",
-      "website": null,
-      "phone": null,
-      "contacts": null,
-      "map_url": null,
-      "latitude": null,
-      "longitude": null,
-      "google_place_id": null,
-      "social_links": {},
+      "address": "Chmielna 108, 00-801 Warszawa, Польша",
+      "average_price": "120zł",
+      "category_emoji": "🥞",
+      "category_id": "21",
+      "category_name": "Бранчи",
       "city_id": "",
       "city_name": "Варшава",
-      "created_at": "2026-02-03T00:14:25.949Z",
-      "updated_at": "2026-02-03T00:14:25.949Z",
-      "photos": []
+      "created_at": "2026-02-06T19:48:12.698Z",
+      "description": "food, wine and feelings all-day dining",
+      "google_place_id": "0x471ecd01cebbb3e1:0xdf6576adf65fb4c6",
+      "id": "f17eabf9-67fb-428a-b373-00e1366b200a",
+      "latitude": 52.2286894,
+      "longitude": 20.9975344,
+      "map_url": "https://maps.app.goo.gl/Bhb9KEyn37DQqgHd9",
+      "name": "MUR MUR",
+      "phone": "+48 577 027 575",
+      "photos": [
+        {
+          "fileName": "photo_1770407290335_qocjl9.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIWwGmGRWE4j9zTt29w1uHRw6-jJkusAAJnFmsbY4wxSHW5NcK3ulRuAQADAgADeAADOAQ",
+          "uploadedAt": "2026-02-06T19:48:10.766Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770407290335_qocjl9.jpg"
+        },
+        {
+          "fileName": "photo_1770407291875_iu2nc.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIWwWmGRWEjy_AvPem6VVqB0oOtNloqAAJoFmsbY4wxSE5KxvDnsrRqAQADAgADeAADOAQ",
+          "uploadedAt": "2026-02-06T19:48:12.197Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770407291875_iu2nc.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/murmur.warsaw"
+      },
+      "updated_at": "2026-02-06T19:48:12.698Z",
+      "website": "https://murmur.choiceqr.com/menu?utm_source=ig&utm_medium=social&utm_content=link_in_bio&fbclid=PAdGRleAPzI3NleHRuA2FlbQIxMQBzcnRjBmFwcF9pZA8xMjQwMjQ1NzQyODc0MTQAAaeeUr9IAe1AyMsi4aci04mFcbolSabNtuPktTwGHVlIAU-E_sJiBq1pPQCZjw_aem_e0k_WKxaUOOHlvwAm9Zr8w",
+      "working_hours": "вс-чт 08:30-22:00\nпт-сб 08:30-23:00"
+    },
+    {
+      "address": "Krochmalna 59, 00-864 Warszawa, Польша",
+      "average_price": "130zł",
+      "category_emoji": "🇵🇱",
+      "category_id": "15",
+      "category_name": "Польская",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-06T22:18:57.878Z",
+      "description": "МИФИЧЕСКОЕ ПИРШЕСТВО ОТ РАССВЕТА ДО НОЧИ — завтрак, хлеб, кофе, чай, травы, обед, пиво, мёд, вино, коктейли, дичь, ужины",
+      "google_place_id": "0x471ecd79ab9792b7:0xfe7f053b1223e126",
+      "id": "b017d1a3-a79f-438f-8f65-30a6e1bfe7e3",
+      "latitude": 52.2354975,
+      "longitude": 20.9869889,
+      "map_url": "https://maps.app.goo.gl/6SxrZtRbna3ovwFJ9",
+      "name": "WYRAJ",
+      "phone": "+48 570 010 570",
+      "photos": [
+        {
+          "fileName": "photo_1770416333645_im3ime.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIXAmmGaLhLybj3U04NddhAbbv8OEd2AAIuF2sbY4wxSD1XTNIJ33bwAQADAgADeQADOAQ",
+          "uploadedAt": "2026-02-06T22:18:54.087Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770416333645_im3ime.jpg"
+        },
+        {
+          "fileName": "photo_1770416335193_xg6cm.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIXA2mGaLgEtBxh3dONP6R0NUgk-2u-AAIvF2sbY4wxSJDlE9UHy08LAQADAgADeQADOAQ",
+          "uploadedAt": "2026-02-06T22:18:55.712Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770416335193_xg6cm.jpg"
+        },
+        {
+          "fileName": "photo_1770416336969_twg9h.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIXBGmGaLjqGslqlMWjt_7I-HgD6DMrAAIwF2sbY4wxSCuj272quvNqAQADAgADeQADOAQ",
+          "uploadedAt": "2026-02-06T22:18:57.375Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770416336969_twg9h.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/wyraj.warszawa"
+      },
+      "updated_at": "2026-02-07T00:18:45.111Z",
+      "website": "https://wyraj.net/uczta-karta",
+      "working_hours": "пн-чт 12:00-22:00 \nпт - 12:00-00:00\nсб - 10:00-00:00 \nвс - 10:00-22:00"
+    },
+    {
+      "address": "Żurawia 16, 00-515 Warszawa, Польша",
+      "average_price": "60zł",
+      "category_emoji": "🍔",
+      "category_id": "4",
+      "category_name": "Бургеры",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-06T22:36:23.174Z",
+      "description": "«Попробуй, сделай глоток, влюбись.»",
+      "google_place_id": "0x471ecd0024ee6a51:0x8b888a339b75f0c2",
+      "id": "991c7f71-7714-4acd-ac28-5fb68a3ca456",
+      "latitude": 52.2288139,
+      "longitude": 21.0166011,
+      "map_url": "https://maps.app.goo.gl/zPHRpB5KEdTWVU6S7",
+      "name": "Kiki",
+      "phone": "+48 530 661 477",
+      "photos": [
+        {
+          "fileName": "photo_1770417380958_h7vz4c.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIXXWmGbNR2AZX2Y5RSvJTGyc85gqpNAAJDF2sbY4wxSKLjtIt-mi0dAQADAgADeQADOAQ",
+          "uploadedAt": "2026-02-06T22:36:21.347Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770417380958_h7vz4c.jpg"
+        },
+        {
+          "fileName": "photo_1770417382307_smibs4.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIXXmmGbNRM_Cn4R4xf2OeCBeimsGtUAAJEF2sbY4wxSMyFGd0hlO-zAQADAgADeAADOAQ",
+          "uploadedAt": "2026-02-06T22:36:22.673Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770417382307_smibs4.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/kiki.warszawa"
+      },
+      "updated_at": "2026-02-06T22:36:23.174Z",
+      "website": "https://kiki.choiceqr.com/pl/menu",
+      "working_hours": "пн-вс 09:00-22:00"
+    },
+    {
+      "address": "Krochmalna 2, 00-864 Warszawa, Польша",
+      "average_price": "80zł",
+      "category_emoji": "🍣",
+      "category_id": "36",
+      "category_name": "Суши",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-06T22:48:42.808Z",
+      "description": "Свежие морепродукты, душевный рамен, суши и блюда для компании с восточным видением.",
+      "google_place_id": "0x471ecd5f41eb7859:0x3b5860cac8f976ab",
+      "id": "f6f60385-455d-4006-ab35-459f42883d82",
+      "latitude": 52.2376932,
+      "longitude": 20.9948016,
+      "map_url": "https://maps.app.goo.gl/dQEsZbVTbqGUoTAk8",
+      "name": "Nook",
+      "phone": "+48 668 290 818",
+      "photos": [
+        {
+          "fileName": "photo_1770418120364_l1pos8.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIXnGmGb76BLs4baN0I4DE3_DU-1cJxAAJKF2sbY4wxSOQojoMAAXYdGAEAAwIAA20AAzoE",
+          "uploadedAt": "2026-02-06T22:48:40.818Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770418120364_l1pos8.jpg"
+        },
+        {
+          "fileName": "photo_1770418121779_qq9csj.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIXnWmGb74AARKgRh5SfqTfIZesue1H7QACSxdrG2OMMUi3dmGY3Wq_AQEAAwIAA3gAAzoE",
+          "uploadedAt": "2026-02-06T22:48:42.307Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770418121779_qq9csj.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/nook.warszawa?igsh=MWRwcmZ4anYzazhjNw=="
+      },
+      "updated_at": "2026-02-06T22:48:42.808Z",
+      "website": "https://nooksushi.choiceqr.com/menu?utm_source=ig&utm_medium=social&utm_content=link_in_bio&fbclid=PAdGRleAPzThZleHRuA2FlbQIxMQBzcnRjBmFwcF9pZA8xMjQwMjQ1NzQyODc0MTQAAadmxf77MjSyMN-Z4asuIIeMAkY08WOyZYufoyhPzAuseG5ldyB9IOnmj7NB4g_aem_EsJ8UnoKab_Tr-xXU7wuQQ",
+      "working_hours": "пн-сб 12:00-22:00 \nвс 12:00-21:00"
+    },
+    {
+      "address": "Kolejowa 43A, 01-210 Warszawa, Польша",
+      "average_price": "70 zł",
+      "category_emoji": "🥞",
+      "category_id": "21",
+      "category_name": "Бранчи",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-08T15:31:06.898Z",
+      "description": "wine & french kisses",
+      "google_place_id": "0x471ecd6b8e726817:0x306afd5e56979bec",
+      "id": "6d5c6838-051c-4069-a5bf-453a0f303bff",
+      "latitude": 52.2268281,
+      "longitude": 20.9798938,
+      "map_url": "https://maps.app.goo.gl/hqms9DNmhW8rYaT49",
+      "name": "Lou Lou Eatery",
+      "phone": "+48 535 445 864",
+      "photos": [
+        {
+          "fileName": "photo_1770564664816_ilundc.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIX0GmIrDGCLr0fnq7BzpUH0NKMjI3iAAKzFmsbeZ9JSBjf70oxT2diAQADAgADeQADOgQ",
+          "uploadedAt": "2026-02-08T15:31:05.173Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770564664816_ilundc.jpg"
+        },
+        {
+          "fileName": "photo_1770564666131_i237f7.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIX0WmIrDFCD9lF6Py1j16_WjRldFQYAAK0FmsbeZ9JSDdoFtmzzZ65AQADAgADeAADOgQ",
+          "uploadedAt": "2026-02-08T15:31:06.397Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770564666131_i237f7.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/louloueatery?igsh=MTU3MWFseDQ3ZXdyeg=="
+      },
+      "updated_at": "2026-02-08T15:31:06.898Z",
+      "website": "https://loulouwwa.choiceqr.com/menu?utm_source=ig&utm_medium=social&utm_content=link_in_bio&fbclid=PAdGRleAP1h-lleHRuA2FlbQIxMQBzcnRjBmFwcF9pZA8xMjQwMjQ1NzQyODc0MTQAAaeHm0BVSL9Xanv9-ulmo8xBU2eqNrlPp707vb7LrhccO5NFmSPHe8tLu_B2tQ_aem_6xdBuQ82_bxZ0evHq46-BA",
+      "working_hours": "вс-чт 08:30-22:00\nпт-сб 08:30-23:00"
+    },
+    {
+      "address": "Chmielna 28, 00-020 Warszawa, Польша",
+      "average_price": "120 zł",
+      "category_emoji": "🍕",
+      "category_id": "35",
+      "category_name": "Пицца",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-08T16:01:16.205Z",
+      "description": "Mimosa Brooklyn Pizza — уютное место в центре Варшавы с вкусной пиццей, приятной атмосферой и стильным интерьером.",
+      "google_place_id": "0x471ecd05742c936d:0x453f23902a1af6cb",
+      "id": "4051287c-9cb4-457f-a3f2-1400b17c74bc",
+      "latitude": 52.2321276,
+      "longitude": 21.01324,
+      "map_url": "https://maps.app.goo.gl/zUQjkYgPNCJC5QNx7",
+      "name": "Mimosa",
+      "phone": "+48 882 505 053",
+      "photos": [
+        {
+          "fileName": "photo_1770566473909_6vxwxt.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIX9WmIse_8FOsaj7vc5GUJtERhNfWsAAKSF2sbeZ9JSCPVfUZIPq3VAQADAgADeAADOgQ",
+          "uploadedAt": "2026-02-08T16:01:14.223Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770566473909_6vxwxt.jpg"
+        },
+        {
+          "fileName": "photo_1770566475332_hgfy9.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIX92mIsy_F2r3lC3jSxZvSELnP8xzCAAKXF2sbeZ9JSIGs1OEJmfRDAQADAgADeQADOgQ",
+          "uploadedAt": "2026-02-08T16:01:15.704Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770566475332_hgfy9.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/mimosa_warsaw?igsh=MnI3MGF1N3duNWFy"
+      },
+      "updated_at": "2026-02-08T16:01:16.205Z",
+      "website": "https://mimosawarsaw.choiceqr.com/pl/takeaway/section:snidanki/dodatki-sniadanie?utm_source=ig&utm_medium=social&utm_content=link_in_bio&fbclid=PAdGRleAP1j35leHRuA2FlbQIxMQBzcnRjBmFwcF9pZA8xMjQwMjQ1NzQyODc0MTQAAacGxedI53Jd1DfxSHzlW1fThHX_js7HyIoN_c7qIlw7Aj05yq1Hs9KEVtHxrA_aem_yh1mewz0I7bm0XhYz9FfxA",
+      "working_hours": "вс 10:00-23:00\nпн-чт 12:00-23:00\nпт-сб 10:00-00:00"
+    },
+    {
+      "address": "aleja Zieleniecka 6/8, 03-727 Warszawa",
+      "average_price": "100 zł",
+      "category_emoji": "🇺🇿",
+      "category_id": "37",
+      "category_name": "Узбекская",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-08T16:17:41.555Z",
+      "description": "Самый большой ресторан узбекской кухни в Варшаве!",
+      "id": "c75cc192-04de-43dd-966b-84af23b8d847",
+      "latitude": 52.2445012,
+      "longitude": 21.0474693,
+      "map_url": "https://maps.app.goo.gl/pJKrwK3E1bjUqSs78?g_st=ic",
+      "name": "Guzar Garden",
+      "phone": "+48734055009",
+      "photos": [
+        {
+          "fileName": "photo_1770567460673_4qh4.jpg",
+          "telegramFileId": "AgACAgQAAxkBAAIYPmmItx_zp7b0MV0irz4nTJ6_c_PxAAJaDWsbNrBBULjip9goVHx0AQADAgADeQADOgQ",
+          "uploadedAt": "2026-02-08T16:17:41.054Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770567460673_4qh4.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/guzar_garden_restauracja?igsh=MXdrdGtrbnBjMzNwZw=="
+      },
+      "updated_at": "2026-02-08T16:17:41.555Z",
+      "working_hours": "09:00-00:00 ежедневно"
+    },
+    {
+      "address": "Krochmalna 61, 00-864 Warszawa, Польша",
+      "average_price": "60 zł",
+      "category_emoji": "🍳",
+      "category_id": "27",
+      "category_name": "Завтраки",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-08T17:42:41.212Z",
+      "description": "Хлеб, масло, завтрак и ужин",
+      "google_place_id": "0x471ecda9c229a3cd:0xc877cf34c17e218d",
+      "id": "adb4dfb2-c345-4f92-926f-d8cfb2a72c16",
+      "latitude": 52.2346826,
+      "longitude": 20.9867651,
+      "map_url": "https://maps.app.goo.gl/aZEFrqNR7RseEpc5A",
+      "name": "BAKEN",
+      "phone": "+48 575 840 890",
+      "photos": [
+        {
+          "fileName": "photo_1770572559071_y82mb.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIYgWmIywkLryeWWh8uOXsTGUWmlZYLAALHGGsbeZ9JSLuMV1qMQRNfAQADAgADeQADOgQ",
+          "uploadedAt": "2026-02-08T17:42:39.427Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770572559071_y82mb.jpg"
+        },
+        {
+          "fileName": "photo_1770572560392_ygnuj.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIYgmmIywnnpUcAATs3g3WFgAh108wFzgACyBhrG3mfSUik1wvr3jHBiQEAAwIAA3kAAzoE",
+          "uploadedAt": "2026-02-08T17:42:40.712Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770572560392_ygnuj.jpg"
+        }
+      ],
+      "social_links": {
+        "Instagram": "https://www.instagram.com/baken.piekarnia?igsh=cnRqMHBrY2lpdmsy"
+      },
+      "updated_at": "2026-02-08T17:42:41.212Z",
+      "website": "https://baken.pl/wp-content/uploads/2023/11/MENU-BAKEN-PORANKI-1.pdf",
+      "working_hours": "вс-чт 08:00-22:00\nпт-сб 08:00-23:00"
+    },
+    {
+      "address": "Nowogrodzka 15, 00-511 Warszawa, Польша",
+      "average_price": "90 zł",
+      "category_emoji": "🍸",
+      "category_id": "3",
+      "category_name": "Бар",
+      "city_id": "",
+      "city_name": "Варшава",
+      "created_at": "2026-02-08T17:59:27.991Z",
+      "description": "Кофейня и коктейль-бар в угловом доме на Новогродзкой и Круче",
+      "google_place_id": "0x471ecdbf08edc521:0xcbe030537758477b",
+      "id": "14127708-9614-4e2b-af0e-e4b91b1163cb",
+      "latitude": 52.2296249,
+      "longitude": 21.0166768,
+      "map_url": "https://maps.app.goo.gl/EJLw99wqkWfxnPmu5",
+      "name": "Feliks Bar Café",
+      "phone": "+48 797 206 968",
+      "photos": [
+        {
+          "fileName": "photo_1770573565497_gjmv16.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIYpWmIzuGOr3OrTuU8i5K8zD-t44dOAAL0GGsbeZ9JSIYu7AmEW4MCAQADAgADeQADOgQ",
+          "uploadedAt": "2026-02-08T17:59:25.961Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770573565497_gjmv16.jpg"
+        },
+        {
+          "fileName": "photo_1770573567079_kordn.jpg",
+          "telegramFileId": "AgACAgIAAxkBAAIYpmmIzuEZ8VHiCDIK9wNVDZ704Br0AAL1GGsbeZ9JSNpnNoC85uhMAQADAgADeQADOgQ",
+          "uploadedAt": "2026-02-08T17:59:27.491Z",
+          "url": "https://storage.googleapis.com/help-tasc-progect.firebasestorage.app/photos/photo_1770573567079_kordn.jpg"
+        }
+      ],
+      "updated_at": "2026-02-08T19:40:18.834Z",
+      "website": "https://www.instagram.com/feliksbar_cafe?igsh=bTRqbDQ2bDBkZ3o3",
+      "working_hours": "вс 12:00-23:00\nпн закрыто\nвт-ср 16:00-00:00\nчт 16:00-01:00\nпт-сб 12:00-02:00"
     }
   ],
-  "updatedAt": "2026-02-03T00:14:26.289Z",
+  "updatedAt": "2026-02-08T19:40:18.834Z",
   "updated_at": "2026-02-02T23:53:55.795Z"
 }

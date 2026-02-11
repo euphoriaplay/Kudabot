@@ -33,6 +33,41 @@ class CityGuideBot {
     google_place_id: 'Google Place ID'
   };
 
+  // ✅ НОВОЕ: Maps для дедупликации
+    this.processingCallbacks = new Map();
+    this.processingMessages = new Map();
+    this.processingCommands = new Map();
+    this.processingPhotos = new Map();
+    this.showingMenu = new Map();
+    this.lastMessages = new Map();
+    
+    // ✅ НОВОЕ: Очистка старых записей каждые 30 секунд
+    setInterval(() => {
+      const now = Date.now();
+      
+      // Очищаем старые processingMessages (старше 10 секунд)
+      for (const [key, timestamp] of this.processingMessages.entries()) {
+        if (now - timestamp > 10000) {
+          this.processingMessages.delete(key);
+        }
+      }
+      
+      // Очищаем старые lastMessages (старше 60 секунд)
+      for (const [key, timestamp] of this.lastMessages.entries()) {
+        if (now - timestamp > 60000) {
+          this.lastMessages.delete(key);
+        }
+      }
+      
+      // Очищаем старые processingCallbacks (старше 30 секунд)
+      for (const [key, timestamp] of this.processingCallbacks.entries()) {
+        if (now - timestamp > 30000) {
+          this.processingCallbacks.delete(key);
+        }
+      }
+    }, 30000);
+
+
   this.adminSessions = new Map();
 
     this.adminSessions = new Map();
@@ -2411,22 +2446,21 @@ async showPlaceDetails(chatId, cityKey, placeId, userId = null) {
     // ✅ ФОРМИРУЕМ СООБЩЕНИЕ С БЕЗОПАСНЫМ HTML
     let message = '';
 
-    // Добавляем скрытую ссылку на фото В САМОЕ НАЧАЛО (HTML формат)
+    // ✅ ИСПРАВЛЕНИЕ: Используем правильный невидимый символ
     if (photoUrl) {
-      // 🔥 ИСПРАВЛЕНИЕ: используем HTML тег вместо Markdown
-      message += `<a href="${photoUrl}">​</a>`;
+      // Используем HTML entity для невидимого символа
+      message += `<a href="${photoUrl}">&#8203;</a>`;
     }
 
-    // 🔥 ИСПРАВЛЕНИЕ: Безопасный HTML текст с полной очисткой
+    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Безопасный HTML текст
     const safeName = this.escapeHtml(place.name);
     const safeCategoryName = this.escapeHtml(category.name);
     const safeAddress = place.address ? this.escapeHtml(place.address) : 'не указан';
-const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hours) : 'не указано';
+    const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hours) : 'не указано';
     const safePrice = place.average_price ? this.escapeHtml(place.average_price) : null;
     const safeDescription = place.description ? this.escapeHtml(place.description) : 'Нет описания';
     const safePhone = place.phone ? this.escapeHtml(place.phone) : null;
 
-    // 🔥 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем каждый элемент на валидность HTML
     message += `🏛️ <b>${safeName}</b>\n`;
     message += `📁 ${category.emoji} ${safeCategoryName}\n\n`;
     message += `📍 <b>Адрес:</b> ${safeAddress}\n`;
@@ -2442,22 +2476,14 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       message += `\n📞 <b>Телефон:</b> ${safePhone}\n`;
     }
 
-    // 🔴 УЛУЧШЕННЫЙ МЕТОД ПОЛУЧЕНИЯ СОЦСЕТЕЙ
+    // Остальной код без изменений...
     const socialLinks = this.getValidSocialLinks(place);
     
-    console.log('🔍 [DEBUG showPlaceDetails] Соцсети после обработки:', {
-      hasSocialLinks: !!socialLinks,
-      count: Object.keys(socialLinks || {}).length,
-      data: socialLinks
-    });
-    
-    // ✅ ОТОБРАЖЕНИЕ СОЦСЕТЕЙ В ТЕКСТЕ (без разметки, просто текст)
     if (socialLinks && Object.keys(socialLinks).length > 0) {
       message += `\n📱 <b>Социальные сети:</b>\n`;
       Object.entries(socialLinks).forEach(([name, url]) => {
         const icon = this.getSocialIcon(url);
-        const safeSocialName = this.escapeHtml(name);
-         message += `• ${icon} : ${url}\n`;
+        message += `• ${icon} : ${url}\n`;
       });
     }
 
@@ -2465,25 +2491,20 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       inline_keyboard: []
     };
 
-    // ✅ ДОБАВЛЯЕМ КНОПКИ СОЦСЕТЕЙ (ОБЯЗАТЕЛЬНО)
+    // КНОПКИ СОЦСЕТЕЙ
     if (socialLinks && Object.keys(socialLinks).length > 0) {
-      console.log(`🔍 Создаю кнопки для соцсетей:`, Object.entries(socialLinks));
-      
       const socialEntries = Object.entries(socialLinks);
       
-      // Группируем по 2 кнопки в ряд
       for (let i = 0; i < socialEntries.length; i += 2) {
         const row = socialEntries.slice(i, i + 2).map(([name, url]) => {
           const icon = this.getSocialIcon(url);
           const normalizedUrl = this.normalizeSocialUrl(url);
           
           if (!normalizedUrl || normalizedUrl.trim() === '') {
-            console.warn(`⚠️ Пустой URL для ${name}`);
             return null;
           }
           
           const urlToUse = normalizedUrl.startsWith('http') ? normalizedUrl : `https://${normalizedUrl}`;
-          const safeButtonName = this.escapeHtml(name.substring(0, 15));
           
           return {
             text: `${icon}`,
@@ -2497,7 +2518,7 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       }
     }
 
-    // ✅ КНОПКИ САЙТА И КАРТЫ
+    // КНОПКИ САЙТА И КАРТЫ
     if (place.website) {
       const normalizedWebsite = this.normalizeSocialUrl(place.website);
       if (normalizedWebsite && normalizedWebsite.trim() !== '') {
@@ -2518,7 +2539,7 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       }
     }
 
-    // ✅ КНОПКИ ТАКСИ
+    // КНОПКИ ТАКСИ
     if (place.latitude && place.longitude) {
       const uberLink = this.getUberLinkForPlace(place);
       
@@ -2532,7 +2553,7 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       }
     }
 
-    // ✅ КНОПКА "СКОПИРОВАТЬ НОМЕР"
+    // КНОПКА "СКОПИРОВАТЬ НОМЕР"
     if (place.phone) {
       inlineKeyboard.inline_keyboard.push([
         {
@@ -2542,7 +2563,7 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       ]);
     }
 
-    // ✅ КНОПКА "РЕДАКТИРОВАТЬ СОЦСЕТИ" (ТОЛЬКО ДЛЯ АДМИНОВ)
+    // КНОПКА "РЕДАКТИРОВАТЬ СОЦСЕТИ" (ТОЛЬКО ДЛЯ АДМИНОВ)
     const isAdmin = this.isUserAdmin(userId);
     if (isAdmin) {
       inlineKeyboard.inline_keyboard.push([
@@ -2553,7 +2574,7 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       ]);
     }
 
-    // ✅ КНОПКА "ЧТО-ТО НЕ ТАК?"
+    // КНОПКА "ЧТО-ТО НЕ ТАК?"
     inlineKeyboard.inline_keyboard.push([
       { 
         text: '⚠️ Что-то не так?', 
@@ -2561,7 +2582,7 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       }
     ]);
 
-    // ✅ КНОПКИ НАВИГАЦИИ
+    // КНОПКИ НАВИГАЦИИ
     const navigationRow = [];
 
     if (place.category_id) {
@@ -2583,14 +2604,11 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
 
     inlineKeyboard.inline_keyboard.push(navigationRow);
 
-    // 🔴 ОБЯЗАТЕЛЬНАЯ ВАЛИДАЦИЯ И ОЧИСТКА КЛАВИАТУРЫ
+    // ВАЛИДАЦИЯ И ОЧИСТКА КЛАВИАТУРЫ
     this.cleanInlineKeyboard(inlineKeyboard);
-    
-    console.log('🔍 [DEBUG] Клавиатура перед отправкой:', JSON.stringify(inlineKeyboard, null, 2));
     
     if (!this.validateReplyMarkup(inlineKeyboard)) {
       console.error('❌ Некорректная клавиатура после очистки');
-      // Создаем простую клавиатуру без проблемных кнопок
       const simpleKeyboard = {
         inline_keyboard: [
           [
@@ -2603,7 +2621,6 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
         ]
       };
       
-      // 🔥 ИСПРАВЛЕНИЕ: Отправляем простым текстом без разметки
       const simpleMessage = `🏛️ ${place.name}\n` +
                            `📁 ${category.emoji} ${category.name}\n\n` +
                            `📍 Адрес: ${place.address || 'не указан'}\n` +
@@ -2618,26 +2635,8 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
       return;
     }
 
-    // 📝 ПРЕДВАРИТЕЛЬНАЯ ВАЛИДАЦИЯ HTML
-    const testMessage = message.substring(0, 200) + '...';
-    console.log('🔍 [DEBUG] Тестовое сообщение (первые 200 символов):', testMessage);
-    
+    // ✅ ОТПРАВЛЯЕМ С HTML И БЕЗ ПРЕДВАРИТЕЛЬНОГО ТЕСТА
     try {
-      // Проверяем HTML на валидность
-      const htmlTest = await this.testHtmlMessage(chatId, message);
-      if (!htmlTest.valid) {
-        console.error('❌ HTML невалиден, отправляю как plain text:', htmlTest.error);
-        
-        // Конвертируем HTML в plain text
-        const plainText = this.htmlToPlainText(message);
-        await this.sendAndTrack(chatId, plainText, {
-          reply_markup: inlineKeyboard,
-          disable_web_page_preview: false
-        });
-        return;
-      }
-      
-      // 📝 ОТПРАВЛЯЕМ ИНФОРМАЦИЮ О МЕСТЕ С HTML
       await this.sendAndTrack(chatId, message, {
         parse_mode: 'HTML',
         reply_markup: inlineKeyboard,
@@ -2647,7 +2646,7 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
     } catch (error) {
       console.error('❌ Ошибка при отправке с HTML:', error.message);
       
-      // 🔥 АВАРИЙНЫЙ ВАРИАНТ: отправляем как plain text
+      // АВАРИЙНЫЙ ВАРИАНТ: отправляем как plain text
       const plainText = this.htmlToPlainText(message);
       try {
         await this.sendAndTrack(chatId, plainText, {
@@ -2656,8 +2655,6 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
         });
       } catch (finalError) {
         console.error('❌ Критическая ошибка:', finalError.message);
-        
-        // Последняя попытка: отправляем только название и адрес
         await this.sendAndTrack(chatId, `🏛️ ${place.name}\n📍 ${place.address || 'Адрес не указан'}`);
       }
     }
@@ -2671,7 +2668,6 @@ const safeHours = place.working_hours ? this.cleanWorkingHours(place.working_hou
     await this.sendAndTrack(chatId, '⚠️ Произошла ошибка при загрузке информации о месте.');
   }
 }
-
 // 🔥 ДОБАВИТЕ ЭТИ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 
 // Метод для тестирования HTML сообщения

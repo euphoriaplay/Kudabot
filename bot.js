@@ -2810,7 +2810,263 @@ escapeHtml(text) {
     }
   }
   // ============ ДОБАВЛЕННЫЙ МЕТОД ============
-  async handleAdminCityAction(chatId, action, cityKey, messageId) {
+  async showAdminPanel(chatId) {
+    const cities = await cityManager.getAllCities();
+    const totalPlaces = await this.getTotalPlacesCount();
+    const categories = await categoryManager.getAllCategories();
+    const ads = await this.adsManager.getAllAds();
+    
+    let message = '👑 *Панель администратора*\n\n';
+    message += `📊 *Статистика:*\n`;
+    message += `├ Городов: ${cities.length}\n`;
+    message += `├ Всего мест: ${totalPlaces}\n`;
+    message += `├ Категорий: ${categories.length}\n`;
+    message += `└ Рекламных объявлений: ${ads.length}\n\n`;
+    message += `*Доступные действия:*`;
+    
+    const inlineKeyboard = {
+      inline_keyboard: [
+        [
+          { text: '➕ Добавить город', callback_data: 'admin_action:add_city' },
+          { text: '🗑️ Удалить город', callback_data: 'admin_action:remove_city' }
+        ],
+        [
+          { text: '📋 Список городов', callback_data: 'admin_action:list_cities' }
+        ],
+        [
+          { text: '➕ Добавить место', callback_data: 'admin_action:add_place' },
+          { text: '✏️ Редактировать место', callback_data: 'admin_action:edit_place' }
+        ],
+        [
+          { text: '📁 Управление категориями', callback_data: 'admin_action:manage_categories' }
+        ],
+        [
+          // ✅ НОВАЯ КНОПКА
+          { text: '📢 Управление рекламой', callback_data: 'admin_action:manage_ads' }
+        ],
+        [
+          { text: '📊 Статистика', callback_data: 'admin_action:stats' },
+          { text: '🔄 Обновить данные', callback_data: 'admin_action:refresh' }
+        ]
+      ]
+    };
+    
+    await this.sendAdminMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: inlineKeyboard
+    });
+  }
+
+  async handleAdminAction(chatId, action, param, messageId) {
+    switch(action) {
+      case 'add_city':
+        await this.startAddCity(chatId);
+        break;
+        
+      case 'remove_city':
+        await this.startRemoveCity(chatId);
+        break;
+        
+      case 'list_cities':
+        await this.showAdminCityList(chatId);
+        break;
+        
+      case 'add_place':
+        if (param) {
+          const cityName = await this.getCityNameFromKey(param);
+          await this.startAddPlace(chatId, cityName);
+        } else {
+          await this.startAddPlace(chatId);
+        }
+        break;
+        
+      case 'edit_place':
+        if (param) {
+          const cityName = await this.getCityNameFromKey(param);
+          await this.startEditPlace(chatId, cityName);
+        } else {
+          await this.startEditPlace(chatId);
+        }
+        break;
+        
+    case 'edit_places':
+      if (param) {
+        await this.showPlacesForEdit(chatId, await this.getCityNameFromKey(param));
+      } else {
+        await this.startEditPlace(chatId);
+      }
+      break;
+
+      case 'manage_categories':
+        await this.showCategoryManagement(chatId);
+        break;
+        
+      // ✅ НОВЫЙ CASE
+      case 'manage_ads':
+        await this.showAdsManagement(chatId);
+        break;
+      
+      // ✅ НОВЫЙ CASE для синхронизации Firebase
+      case 'sync_firebase':
+        await this.syncDataToFirebase(chatId);
+        break;
+        
+      case 'stats':
+        await this.showAdminStats(chatId);
+        break;
+        
+      case 'refresh':
+        await this.sendAdminMessage(chatId, '✅ Данные обновлены!');
+        break;
+        
+      case 'cancel':
+        this.userStates.delete(chatId);
+        await this.showAdminPanel(chatId);
+        break;
+        
+      case 'back_to_panel':
+        await this.showAdminPanel(chatId);
+        break;
+        
+      case 'view_places':
+        await this.showAllPlaces(chatId);
+        break;
+        
+      case 'finish':
+        this.adminSessions.delete(chatId);
+        await this.showMainMenu(chatId, 'Главное меню:', true);
+        break;
+    }
+  }
+
+  async startAddCity(chatId) {
+    await this.sendAdminMessage(
+      chatId,
+      '🏙️ *Добавление нового города*\n\n' +
+      'Введите название города:',
+      { parse_mode: 'Markdown' }
+    );
+    
+    this.userStates.set(chatId, {
+      action: 'adding_city',
+      step: 'enter_name'
+    });
+  }
+
+  async startRemoveCity(chatId) {
+    const cities = await cityManager.getAllCities();
+    
+    if (cities.length === 0) {
+      await this.sendAdminMessage(chatId, '📭 Нет городов для удаления.');
+      return;
+    }
+    
+    const inlineKeyboard = {
+      inline_keyboard: []
+    };
+    
+    for (let i = 0; i < cities.length; i += 2) {
+      const row = cities.slice(i, i + 2).map(city => {
+        const cityKey = this.getCityKey(city);
+        console.log(`🔑 Создаю callback_data для города "${city}": admin_city:remove:${cityKey}`);
+        
+        return {
+          text: city,
+          callback_data: `admin_city:remove:${cityKey}`
+        };
+      });
+      inlineKeyboard.inline_keyboard.push(row);
+    }
+    
+    inlineKeyboard.inline_keyboard.push([
+      { text: '🔙 Отмена', callback_data: 'admin_action:cancel' },
+      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
+    ]);
+    
+    await this.sendAdminMessage(
+      chatId,
+      '🗑️ *Удаление города*\n\n' +
+      'Выберите город для удаления:',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: inlineKeyboard
+      }
+    );
+  }
+
+async startEditPlace(chatId, cityName = null) {
+  // Если передан город — сразу переходим к списку мест для редактирования
+  if (cityName) {
+    await this.showPlacesForEdit(chatId, cityName);
+    return;
+  }
+
+  // Иначе показываем выбор города
+  const cities = await cityManager.getAllCities();
+  if (cities.length === 0) {
+    await this.sendAdminMessage(chatId, '📭 Нет городов для редактирования.');
+    return;
+  }
+
+  const inlineKeyboard = { inline_keyboard: [] };
+
+  // Строим кнопки по 2 в ряд
+  for (let i = 0; i < cities.length; i += 2) {
+    const row = cities.slice(i, i + 2).map(city => {
+      const cityKey = this.getCityKey(city);
+      return {
+        text: `🏙️ ${city}`,
+        callback_data: `admin_city:select_for_edit:${cityKey}`
+      };
+    });
+    inlineKeyboard.inline_keyboard.push(row);
+  }
+
+  // Кнопки навигации
+  inlineKeyboard.inline_keyboard.push([
+    { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
+    { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
+  ]);
+
+  await this.sendAdminMessage(
+    chatId,
+    '✏️ *Редактирование места*\n\n' +
+    'Выберите город, в котором хотите отредактировать место:',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: inlineKeyboard
+    }
+  );
+}
+
+  async showAdminCityList(chatId) {
+    const cities = await cityManager.getAllCities();
+    
+    if (cities.length === 0) {
+      await this.sendAdminMessage(chatId, '📭 Список городов пуст.');
+      return;
+    }
+    
+    let message = '🏙️ *Список городов:*\n\n';
+    cities.forEach((city, index) => {
+      message += `${index + 1}. ${city}\n`;
+    });
+    
+    const inlineKeyboard = {
+      inline_keyboard: [
+        [
+          { text: '🔙 Назад в админку', callback_data: 'admin_action:back_to_panel' }
+        ]
+      ]
+    };
+    
+    await this.sendAdminMessage(chatId, message, {
+      parse_mode: 'Markdown',
+      reply_markup: inlineKeyboard
+    });
+  }
+
+    async handleAdminCityAction(chatId, action, cityKey, messageId) {
     // Получаем настоящее название города
     const cityName = await this.getCityNameFromKey(cityKey);
     
@@ -3988,6 +4244,15 @@ async processCallbackActionInternal(chatId, userId, action, params, messageId, i
       }
       break;
       
+    case 'admin_city_page':
+      if (!isAdmin) return;
+      await this.showPlacesForEdit(chatId, await this.getCityNameFromKey(params[0]), parseInt(params[1]));
+      break;
+
+    case 'user_category_page':
+      await this.showPlacesByCategory(chatId, params[0], params[1], parseInt(params[2]));
+      break;
+
     case 'admin_city':
       if (!isAdmin) {
         await this.bot.sendMessage(
@@ -4649,2625 +4914,97 @@ async handleCitySelection(chatId, cityKey, isAdmin) {
 }
 
 // 2. showPlacesByCategory - сортировка мест
-async showPlacesByCategory(chatId, cityKey, categoryId) {
-  const cityName = await this.getCityNameFromKey(cityKey);
-  const userId = this.userStates.get(chatId)?.userId || chatId;
-  const isAdmin = this.isUserAdmin(userId);
-  
-  const places = await placeManager.getPlacesByCategory(cityName, categoryId);
-  const category = await categoryManager.getCategoryById(categoryId);
-  
-  if (places.length === 0) {
-    await this.sendAndTrack(
-      chatId,
-      `В категории "${category.emoji} ${category.name}" пока нет мест.\n\n` +
-      `Выберите другую категорию или добавьте новое место.`
-    );
-    
-    await this.bot.sendMessage(
-      chatId,
-      '📋 *Выберите действие:*',
-      { 
-        parse_mode: 'Markdown',
-        reply_markup: this.getKeyboardWithMainMenu(isAdmin) 
-      }
-    );
-    return;
-  }
-  
-  let message = `📍 *${category.emoji} ${category.name} в ${cityName}*\n\n`;
-  message += `Найдено мест: ${places.length}\n\n`;
-  message += `Выберите место:`;
-  
-  const inlineKeyboard = {
-    inline_keyboard: []
-  };
-  
-  // ✅ СОРТИРУЕМ МЕСТА ПО АЛФАВИТУ (по названию)
-  const sortedPlaces = [...places].sort((a, b) => {
-    return a.name.localeCompare(b.name, 'ru');
-  });
-  
-
-  
-  // Добавляем отсортированные места
-sortedPlaces.forEach(place => {
-  const phoneIcon = place.phone ? ' 📱' : '';
-  const socialIcon = place.social_links && Object.keys(place.social_links).length > 0 ? ' 📱' : '';
-  const icons = socialIcon;
-  
-  inlineKeyboard.inline_keyboard.push([
-    {
-      text: `${place.name}${icons}${place.average_price ? ` (${place.average_price})` : ''}`,
-      callback_data: `show_place:${cityKey}:${place.id}`
-    }
-  ]);
-});
-  
-  // Отправляем информацию о местах с inline-кнопками
-  await this.sendAndTrack(chatId, message, {
-    parse_mode: 'Markdown',
-    reply_markup: inlineKeyboard
-  });
-}
-
-// 3. showPlacesForEdit - сортировка для админов
-async showPlacesForEdit(chatId, cityName) {
-  const places = await placeManager.getPlacesByCity(cityName);
-  
-  if (places.length === 0) {
-    await this.sendAdminMessage(
-      chatId,
-      `📭 В городе "${cityName}" нет мест для редактирования.`
-    );
-    return;
-  }
-  
-  let message = `✏️ *Редактирование места в ${cityName}*\n\n`;
-  message += `Выберите место для редактирования:`;
-  
-  const inlineKeyboard = {
-    inline_keyboard: []
-  };
-  
-  // ✅ СОРТИРУЕМ МЕСТА ПО АЛФАВИТУ
-  const sortedPlaces = [...places].sort((a, b) => {
-    return a.name.localeCompare(b.name, 'ru');
-  });
-  
-  sortedPlaces.forEach((place, index) => {
-    const cleanName = this.cleanButtonText(place.name);
-    const displayName = cleanName || `Место ${index + 1}`;
-    
-    const category = place.category_emoji ? `${place.category_emoji} ` : '';
-    
-    inlineKeyboard.inline_keyboard.push([
-      {
-        text: `${category}${displayName}`,
-        callback_data: `edit_place_select:${this.getCityKey(cityName)}:${place.id}`
-      }
-    ]);
-  });
-  
-  inlineKeyboard.inline_keyboard.push([
-    { text: '🔙 Выбрать другой город', callback_data: 'admin_action:edit_place' },
-    { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
-    { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-  ]);
-  
-  try {
-    await this.sendAdminMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: inlineKeyboard
-    });
-  } catch (error) {
-    console.error('❌ Ошибка при отправке сообщения:', error.message);
-    await this.showPlacesForEditSimple(chatId, cityName, sortedPlaces);
-  }
-}
-
-// 4. showCategorySelection - сортировка категорий для админа
-async showCategorySelection(chatId, cityName, isNewCategory = false) {
-  if (!cityName || cityName.trim() === '') {
-    console.error('❌ Ошибка: cityName не определен!', { cityName });
-    await this.sendAdminMessage(chatId, '❌ Ошибка: город не определен. Пожалуйста, выберите город еще раз.');
-    await this.showAdminPanel(chatId);
-    return;
-  }
-  
-  const categories = await categoryManager.getAllCategories();
-  const stats = await placeManager.getCityStats(cityName);
-  
-  if (isNewCategory) {
-    this.userStates.set(chatId, {
-      action: 'adding_category',
-      step: 'enter_name',
-      city: cityName
-    });
-    
-    await this.sendAdminMessage(
-      chatId,
-      '📁 *Создание новой категории*\n\n' +
-      'Пожалуйста, введите название новой категории:',
-      { parse_mode: 'Markdown' }
-    );
-    return;
-  }
-  
-  let message = '📁 *Выберите категорию для нового места:*\n\n';
-  
-  const categoriesWithCounts = categories.map(cat => ({
-    ...cat,
-    count: stats.categoriesCount && stats.categoriesCount[cat.id] 
-      ? stats.categoriesCount[cat.id].count 
-      : 0
-  }));
-  
-  const categoriesWithPlaces = categoriesWithCounts.filter(cat => cat.count > 0);
-  const categoriesWithoutPlaces = categoriesWithCounts.filter(cat => cat.count === 0);
-  
-  // ✅ СОРТИРУЕМ КАТЕГОРИИ С МЕСТАМИ
-  categoriesWithPlaces.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  
-  // ✅ СОРТИРУЕМ КАТЕГОРИИ БЕЗ МЕСТ
-  categoriesWithoutPlaces.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  
-  const inlineKeyboard = {
-    inline_keyboard: []
-  };
-  
-  if (categoriesWithPlaces.length > 0) {
-    inlineKeyboard.inline_keyboard.push([
-      { 
-        text: '📊 Категории с местами:', 
-        callback_data: 'category_header:with_places' 
-      }
-    ]);
-    
-    for (let i = 0; i < categoriesWithPlaces.length; i += 2) {
-      const row = categoriesWithPlaces.slice(i, i + 2).map(cat => ({
-        text: `${cat.emoji} ${this.cleanButtonText(cat.name)} (${cat.count})`,
-        callback_data: `admin_category:select:${cat.id}`
-      }));
-      inlineKeyboard.inline_keyboard.push(row);
-    }
-  }
-  
-  if (categoriesWithoutPlaces.length > 0) {
-    inlineKeyboard.inline_keyboard.push([
-      { 
-        text: '📂 Все категории:', 
-        callback_data: 'category_header:all' 
-      }
-    ]);
-    
-    for (let i = 0; i < categoriesWithoutPlaces.length; i += 2) {
-      const row = categoriesWithoutPlaces.slice(i, i + 2).map(cat => ({
-        text: `${cat.emoji} ${this.cleanButtonText(cat.name)}`,
-        callback_data: `admin_category:select:${cat.id}`
-      }));
-      inlineKeyboard.inline_keyboard.push(row);
-    }
-  }
-  
-  inlineKeyboard.inline_keyboard.push([
-    { 
-      text: '➕ Создать новую категорию', 
-      callback_data: 'admin_category:new' 
-    }
-  ]);
-  
-  inlineKeyboard.inline_keyboard.push([
-    { text: '🔙 Выбрать другой город', callback_data: 'admin_action:add_place' },
-    { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
-    { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-  ]);
-  
-  this.cleanInlineKeyboard(inlineKeyboard);
-  
-  if (!this.validateReplyMarkup(inlineKeyboard)) {
-    console.warn('⚠️ Некорректная клавиатура, отправляю без нее');
-    await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
-    return;
-  }
-  
-  await this.sendAdminMessage(chatId, message, {
-    parse_mode: 'Markdown',
-    reply_markup: inlineKeyboard
-  });
-}
-
-// 5. showAllCategories - сортировка для админ-панели
-async showAllCategories(chatId) {
-  const categories = await categoryManager.getAllCategories();
-  const customCategories = await categoryManager.getCustomCategories();
-  
-  let message = '📁 *Список всех категорий:*\n\n';
-  
-  // ✅ СОРТИРУЕМ СТАНДАРТНЫЕ КАТЕГОРИИ
-  const standardCategories = categories.filter(cat => !cat.isCustom)
-    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  
-  message += '*Стандартные категории:*\n';
-  standardCategories.forEach((cat, index) => {
-    message += `${index + 1}. ${cat.emoji} ${cat.name}\n`;
-  });
-  
-  // ✅ СОРТИРУЕМ ПОЛЬЗОВАТЕЛЬСКИЕ КАТЕГОРИИ
-  if (customCategories.length > 0) {
-    const sortedCustom = [...customCategories]
-      .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-    
-    message += `\n*Пользовательские категории:*\n`;
-    sortedCustom.forEach((cat, index) => {
-      message += `${index + 1}. ${cat.emoji} ${cat.name}\n`;
-    });
-  }
-  
-  const inlineKeyboard = {
-    inline_keyboard: [
-      [
-        { text: '➕ Добавить категорию', callback_data: 'admin_categories:add' },
-        { text: '🗑️ Удалить категорию', callback_data: 'admin_categories:delete' }
-      ],
-      [
-        { text: '🔙 Назад', callback_data: 'admin_action:manage_categories' },
-        { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-      ]
-    ]
-  };
-  
-  await this.sendAdminMessage(chatId, message, {
-    parse_mode: 'Markdown',
-    reply_markup: inlineKeyboard
-  });
-}
-
-  // async showPlacesByCategory(chatId, cityKey, categoryId) {
-  //   const cityName = await this.getCityNameFromKey(cityKey);
-  //   const userId = this.userStates.get(chatId)?.userId || chatId;
-  //   const isAdmin = this.isUserAdmin(userId);
-    
-  //   const places = await placeManager.getPlacesByCategory(cityName, categoryId);
-  //   const category = await categoryManager.getCategoryById(categoryId);
-    
-  //   if (places.length === 0) {
-  //     await this.sendAndTrack(
-  //       chatId,
-  //       `В категории "${category.emoji} ${category.name}" пока нет мест.\n\n` +
-  //       `Выберите другую категорию или добавьте новое место.`
-  //     );
-      
-  //     // Отправляем меню
-  //     await this.bot.sendMessage(
-  //       chatId,
-  //       '📋 *Выберите действие:*',
-  //       { 
-  //         parse_mode: 'Markdown',
-  //         reply_markup: this.getKeyboardWithMainMenu(isAdmin) 
-  //       }
-  //     );
-  //     return;
-  //   }
-    
-  //   let message = `📍 *${category.emoji} ${category.name} в ${cityName}*\n\n`;
-  //   message += `Найдено мест: ${places.length}\n\n`;
-  //   message += `Выберите место:`;
-    
-  //   const inlineKeyboard = {
-  //     inline_keyboard: []
-  //   };
-    
-  //   places.forEach(place => {
-  //     inlineKeyboard.inline_keyboard.push([
-  //       {
-  //         text: `${place.name}${place.average_price ? ` (${place.average_price})` : ''}`,
-  //         callback_data: `show_place:${cityKey}:${place.id}`
-  //       }
-  //     ]);
-  //   });
-    
-  //   // ✅ Отправляем информацию о местах с inline-кнопками
-  //   await this.sendAndTrack(chatId, message, {
-  //     parse_mode: 'Markdown',
-  //     reply_markup: inlineKeyboard
-  //   });
-  // }
-
-  extractCoordsAndPlaceIdFromMapUrl(mapUrl) {
-    try {
-      if (!mapUrl || typeof mapUrl !== 'string') {
-        return null;
-      }
-      
-      const result = {
-        latitude: null,
-        longitude: null,
-        google_place_id: null
-      };
-      
-      // Google Maps
-      if (mapUrl.includes('google.com/maps')) {
-        // Координаты после @
-        const coordMatch = mapUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-        if (coordMatch) {
-          result.latitude = parseFloat(coordMatch[1]);
-          result.longitude = parseFloat(coordMatch[2]);
-        }
-        
-        // Google Place ID из !1s
-        const placeIdMatch = mapUrl.match(/!1s([^!]+)/);
-        if (placeIdMatch) {
-          const potentialPlaceId = placeIdMatch[1];
-          if (potentialPlaceId.includes(':') || potentialPlaceId.startsWith('ChIJ')) {
-            result.google_place_id = potentialPlaceId;
-          }
-        }
-      }
-      
-      // Яндекс.Карты
-      else if (mapUrl.includes('yandex.ru/maps') || mapUrl.includes('yandex.com/maps')) {
-        const coordMatch = mapUrl.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
-        if (coordMatch) {
-          // В Яндекс.Картах сначала долгота, потом широта
-          const coords = coordMatch[1].split(',');
-          result.longitude = parseFloat(coords[0]);
-          result.latitude = parseFloat(coords[1]);
-        }
-      }
-      
-      return result;
-    } catch (error) {
-      console.error('Ошибка извлечения координат:', error);
-      return null;
-    }
-  }
-
-
-
-  async sendPlacePhotos(chatId, photos) {
-    if (!photos || photos.length === 0) {
-      console.log('📭 Нет фото для отображения');
-      return;
-    }
-    
-    console.log(`📤 Пытаюсь отправить ${photos.length} фото...`);
-    console.log('🔍 ДЕТАЛИ ФОТО:', JSON.stringify(photos, null, 2));
-    
-    try {
-      // Фильтруем и нормализуем фото
-      const validPhotos = photos
-        .map(photo => {
-          // Если фото - объект с url
-          if (photo && typeof photo === 'object' && photo.url) {
-            return photo;
-          }
-          
-          // Если фото - объект только с fileName (старые записи)
-          if (photo && typeof photo === 'object' && photo.fileName) {
-            // Генерируем URL для Firebase
-            const bucketName = 'help-tasc-progect.firebasestorage.app';
-            const url = `https://storage.googleapis.com/${bucketName}/photos/${photo.fileName}`;
-            
-            return {
-              ...photo,
-              url: url
-            };
-          }
-          
-          // Если фото - строка (URL или fileName)
-          if (typeof photo === 'string') {
-            // Если это уже URL
-            if (photo.startsWith('http')) {
-              return { url: photo };
-            }
-            
-            // Если это fileName (старые записи)
-            const bucketName = 'help-tasc-progect.firebasestorage.app';
-            const url = `https://storage.googleapis.com/${bucketName}/photos/${photo}`;
-            
-            return {
-              fileName: photo,
-              url: url
-            };
-          }
-          
-          return null;
-        })
-        .filter(photo => photo !== null && photo.url);
-      
-      console.log(`✅ Нормализованные фото:`, validPhotos);
-      console.log(`✅ Найдено ${validPhotos.length} валидных фото из ${photos.length}`);
-      
-      if (validPhotos.length === 0) {
-        console.log('⚠️ Нет валидных фото для отправки');
-        return;
-      }
-      
-      // Ограничиваем количество отправляемых фото
-      const photosToSend = validPhotos.slice(0, 5);
-      
-      for (let i = 0; i < photosToSend.length; i++) {
-        const photo = photosToSend[i];
-        
-        try {
-          console.log(`📸 Отправляю фото ${i + 1}/${photosToSend.length}:`, 
-            photo.url.substring(0, 50) + '...');
-          
-          // Отправляем фото по URL
-          await this.sendPhotoAndTrack(chatId, photo.url, {
-  
-          });
-          
-          console.log(`✅ Фото ${i + 1} отправлено успешно`);
-          
-        } catch (photoError) {
-          console.error(`❌ Ошибка отправки фото ${i + 1}:`, photoError.message);
-          
-          // Пробуем отправить как ссылку
-          try {
-            await this.sendAndTrack(
-              chatId,
-              `📎 Фото ${i + 1}: ${photo.url}`
-            );
-          } catch (linkError) {
-            console.error(`❌ Не удалось отправить ссылку: ${linkError.message}`);
-          }
-        }
-        
-        // Небольшая задержка между отправкой фото
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
-      
-      if (validPhotos.length > 5) {
-        await this.sendAndTrack(
-          chatId, 
-          `📷 Показано 5 из ${validPhotos.length} фото`
-        );
-      }
-      
-    } catch (error) {
-      console.error('❌ Критическая ошибка при отправке фото:', error.message);
-      await this.sendAndTrack(chatId, '⚠️ Не удалось загрузить фото');
-    }
-  }
-
-  async showAdminPanel(chatId) {
-    const cities = await cityManager.getAllCities();
-    const totalPlaces = await this.getTotalPlacesCount();
-    const categories = await categoryManager.getAllCategories();
-    const ads = await this.adsManager.getAllAds();
-    
-    let message = '👑 *Панель администратора*\n\n';
-    message += `📊 *Статистика:*\n`;
-    message += `├ Городов: ${cities.length}\n`;
-    message += `├ Всего мест: ${totalPlaces}\n`;
-    message += `├ Категорий: ${categories.length}\n`;
-    message += `└ Рекламных объявлений: ${ads.length}\n\n`;
-    message += `*Доступные действия:*`;
-    
-    const inlineKeyboard = {
-      inline_keyboard: [
-        [
-          { text: '➕ Добавить город', callback_data: 'admin_action:add_city' },
-          { text: '🗑️ Удалить город', callback_data: 'admin_action:remove_city' }
-        ],
-        [
-          { text: '📋 Список городов', callback_data: 'admin_action:list_cities' }
-        ],
-        [
-          { text: '➕ Добавить место', callback_data: 'admin_action:add_place' },
-          { text: '✏️ Редактировать место', callback_data: 'admin_action:edit_place' }
-        ],
-        [
-          { text: '📁 Управление категориями', callback_data: 'admin_action:manage_categories' }
-        ],
-        [
-          // ✅ НОВАЯ КНОПКА
-          { text: '📢 Управление рекламой', callback_data: 'admin_action:manage_ads' }
-        ],
-        [
-          { text: '📊 Статистика', callback_data: 'admin_action:stats' },
-          { text: '🔄 Обновить данные', callback_data: 'admin_action:refresh' }
-        ]
-      ]
-    };
-    
-    await this.sendAdminMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: inlineKeyboard
-    });
-  }
-
-  async handleAdminAction(chatId, action, param, messageId) {
-    switch(action) {
-      case 'add_city':
-        await this.startAddCity(chatId);
-        break;
-        
-      case 'remove_city':
-        await this.startRemoveCity(chatId);
-        break;
-        
-      case 'list_cities':
-        await this.showAdminCityList(chatId);
-        break;
-        
-      case 'add_place':
-        if (param) {
-          const cityName = await this.getCityNameFromKey(param);
-          await this.startAddPlace(chatId, cityName);
-        } else {
-          await this.startAddPlace(chatId);
-        }
-        break;
-        
-      case 'edit_place':
-        if (param) {
-          const cityName = await this.getCityNameFromKey(param);
-          await this.startEditPlace(chatId, cityName);
-        } else {
-          await this.startEditPlace(chatId);
-        }
-        break;
-        
-    case 'edit_places':
-      if (param) {
-        await this.showPlacesForEdit(chatId, await this.getCityNameFromKey(param));
-      } else {
-        await this.startEditPlace(chatId);
-      }
-      break;
-
-      case 'manage_categories':
-        await this.showCategoryManagement(chatId);
-        break;
-        
-      // ✅ НОВЫЙ CASE
-      case 'manage_ads':
-        await this.showAdsManagement(chatId);
-        break;
-      
-      // ✅ НОВЫЙ CASE для синхронизации Firebase
-      case 'sync_firebase':
-        await this.syncDataToFirebase(chatId);
-        break;
-        
-      case 'stats':
-        await this.showAdminStats(chatId);
-        break;
-        
-      case 'refresh':
-        await this.sendAdminMessage(chatId, '✅ Данные обновлены!');
-        break;
-        
-      case 'cancel':
-        this.userStates.delete(chatId);
-        await this.showAdminPanel(chatId);
-        break;
-        
-      case 'back_to_panel':
-        await this.showAdminPanel(chatId);
-        break;
-        
-      case 'view_places':
-        await this.showAllPlaces(chatId);
-        break;
-        
-      case 'finish':
-        this.adminSessions.delete(chatId);
-        await this.showMainMenu(chatId, 'Главное меню:', true);
-        break;
-    }
-  }
-
-  async startAddCity(chatId) {
-    await this.sendAdminMessage(
-      chatId,
-      '🏙️ *Добавление нового города*\n\n' +
-      'Введите название города:',
-      { parse_mode: 'Markdown' }
-    );
-    
-    this.userStates.set(chatId, {
-      action: 'adding_city',
-      step: 'enter_name'
-    });
-  }
-
-  async startRemoveCity(chatId) {
-    const cities = await cityManager.getAllCities();
-    
-    if (cities.length === 0) {
-      await this.sendAdminMessage(chatId, '📭 Нет городов для удаления.');
-      return;
-    }
-    
-    const inlineKeyboard = {
-      inline_keyboard: []
-    };
-    
-    for (let i = 0; i < cities.length; i += 2) {
-      const row = cities.slice(i, i + 2).map(city => {
-        const cityKey = this.getCityKey(city);
-        console.log(`🔑 Создаю callback_data для города "${city}": admin_city:remove:${cityKey}`);
-        
-        return {
-          text: city,
-          callback_data: `admin_city:remove:${cityKey}`
-        };
-      });
-      inlineKeyboard.inline_keyboard.push(row);
-    }
-    
-    inlineKeyboard.inline_keyboard.push([
-      { text: '🔙 Отмена', callback_data: 'admin_action:cancel' },
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-    ]);
-    
-    await this.sendAdminMessage(
-      chatId,
-      '🗑️ *Удаление города*\n\n' +
-      'Выберите город для удаления:',
-      {
-        parse_mode: 'Markdown',
-        reply_markup: inlineKeyboard
-      }
-    );
-  }
-
-async showAdminCityList(chatId) {
-  const cities = await cityManager.getAllCities();
-  
-  if (cities.length === 0) {
-    await this.sendAdminMessage(chatId, '📭 Список городов пуст.');
-    return;
-  }
-  
-  let message = '📋 *Список городов:*\n\n';
-  
-  for (const city of cities) {
-    console.log(`🔍 [showAdminCityList] Обрабатываю город: "${city}"`);
-    
-    // ✅ ИСПРАВЛЕНИЕ: Убедитесь что city не undefined
-    if (!city || typeof city !== 'string') {
-      console.warn(`⚠️ [showAdminCityList] Пропускаю некорректный город:`, city);
-      continue;
-    }
-    
-    try {
-      const cityData = await cityManager.getCityData(city);
-      
-      if (!cityData) {
-        console.warn(`⚠️ Данные города "${city}" не найдены`);
-        message += `🏙️ *${city}*\n`;
-        message += `├ Мест: 0\n`;
-        message += `└ Файл: \`${fileManager.generateCityFileName(city)}\` (не найден)\n\n`;
-        continue;
-      }
-      
-      const placeCount = cityData.places ? cityData.places.length : 0;
-      const fileName = fileManager.generateCityFileName(city);
-      
-      message += `🏙️ *${city}*\n`;
-      message += `├ Мест: ${placeCount}\n`;
-      message += `└ Файл: \`${fileName}\`\n\n`;
-      
-    } catch (error) {
-      console.error(`❌ Ошибка обработки города "${city}":`, error);
-      message += `🏙️ *${city}*\n`;
-      message += `├ Ошибка загрузки данных\n`;
-      message += `└ ${error.message}\n\n`;
-    }
-  }
-  
-  const inlineKeyboard = {
-    inline_keyboard: [
-      [
-        { text: '➕ Добавить город', callback_data: 'admin_action:add_city' },
-        { text: '🗑️ Удалить город', callback_data: 'admin_action:remove_city' }
-      ],
-      [
-        { text: '🔙 Назад', callback_data: 'admin_action:back_to_panel' },
-        { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-      ]
-    ]
-  };
-  
-  await this.sendAdminMessage(chatId, message, {
-    parse_mode: 'Markdown',
-    reply_markup: inlineKeyboard
-  });
-}
-  async startAddPlace(chatId, cityName = null) {
-    console.log(`🔍 [DEBUG startAddPlace] Called with cityName:`, { cityName });
-    
-    if (cityName && cityName.trim() !== '') {
-      console.log(`✅ [DEBUG startAddPlace] Setting state with city: ${cityName}`);
-      this.userStates.set(chatId, {
-        action: 'adding_place',
-        step: 'select_category',
-        city: cityName,
-        placeData: {}
-      });
-      
-      await this.showCategorySelection(chatId, cityName);
-    } else {
-      console.log(`⚠️ [DEBUG startAddPlace] No cityName, asking for city selection`);
-      await this.askForCityForPlace(chatId);
-    }
-  }
-
-  async askForCityForPlace(chatId) {
-    const cities = await cityManager.getAllCities();
-    
-    if (cities.length === 0) {
-      await this.sendAdminMessage(
-        chatId,
-        '📭 Сначала добавьте город через панель администратора.'
-      );
-      return;
-    }
-    
-    // ✅ ОЧИЩАЕМ ЛЮБОЕ СУЩЕСТВУЮЩЕЕ СОСТОЯНИЕ
-    this.userStates.delete(chatId);
-    
-    console.log('🏙️ Города для добавления места:', cities);
-    
-    const inlineKeyboard = {
-      inline_keyboard: []
-    };
-    
-    for (let i = 0; i < cities.length; i += 2) {
-      const row = cities.slice(i, i + 2).map(city => {
-        const cityKey = this.getCityKey(city);
-        console.log(`🔑 Создаю callback_data для города "${city}": admin_city:select_for_place:${cityKey}`);
-        
-        return {
-          text: `🏙️ ${city}`,
-          callback_data: `admin_city:select_for_place:${cityKey}`
-        };
-      });
-      inlineKeyboard.inline_keyboard.push(row);
-    }
-    
-    inlineKeyboard.inline_keyboard.push([
-      { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-    ]);
-    
-    await this.sendAdminMessage(
-      chatId,
-      '🏙️ *Выберите город для добавления места:*',
-      {
-        parse_mode: 'Markdown',
-        reply_markup: inlineKeyboard
-      }
-    );
-  }
-
-  async showCategorySelection(chatId, cityName, isNewCategory = false) {
-    // ✅ ДОБАВЬТЕ ЭТУ ПРОВЕРКУ
-    if (!cityName || cityName.trim() === '') {
-      console.error('❌ Ошибка: cityName не определен!', { cityName });
-      await this.sendAdminMessage(chatId, '❌ Ошибка: город не определен. Пожалуйста, выберите город еще раз.');
-      await this.showAdminPanel(chatId);
-      return;
-    }
-    
-    const categories = await categoryManager.getAllCategories();
-    const stats = await placeManager.getCityStats(cityName);
-    
-    if (isNewCategory) {
-      // Сбрасываем состояние и начинаем создание категории
-      this.userStates.set(chatId, {
-        action: 'adding_category',
-        step: 'enter_name',
-        city: cityName
-      });
-      
-      await this.sendAdminMessage(
-        chatId,
-        '📁 *Создание новой категории*\n\n' +
-        'Пожалуйста, введите название новой категории:',
-        { parse_mode: 'Markdown' }
-      );
-      return;
-    }
-    
-    // ✅ ОБЯЗАТЕЛЬНО ИНИЦИАЛИЗИРУЕМ message ДЛЯ НЕ-NEW КАТЕГОРИЙ
-    let message = '📁 *Выберите категорию для нового места:*\n\n';
-    
-    // Добавляем статистику по категориям
-    const categoriesWithCounts = categories.map(cat => ({
-      ...cat,
-      count: stats.categoriesCount && stats.categoriesCount[cat.id] 
-        ? stats.categoriesCount[cat.id].count 
-        : 0
-    }));
-    
-    // Разделяем на категории с местами и без
-    const categoriesWithPlaces = categoriesWithCounts.filter(cat => cat.count > 0);
-    const categoriesWithoutPlaces = categoriesWithCounts.filter(cat => cat.count === 0);
-    
-    const inlineKeyboard = {
-      inline_keyboard: []
-    };
-    
-    if (categoriesWithPlaces.length > 0) {
-      inlineKeyboard.inline_keyboard.push([
-        { 
-          text: '📊 Категории с местами:', 
-          callback_data: 'category_header:with_places' 
-        }
-      ]);
-      
-      for (let i = 0; i < categoriesWithPlaces.length; i += 2) {
-        const row = categoriesWithPlaces.slice(i, i + 2).map(cat => ({
-          text: `${cat.emoji} ${this.cleanButtonText(cat.name)} (${cat.count})`,
-          callback_data: `admin_category:select:${cat.id}`
-        }));
-        inlineKeyboard.inline_keyboard.push(row);
-      }
-    }
-    
-    if (categoriesWithoutPlaces.length > 0) {
-      inlineKeyboard.inline_keyboard.push([
-        { 
-          text: '📂 Все категории:', 
-          callback_data: 'category_header:all' 
-        }
-      ]);
-      
-      for (let i = 0; i < categoriesWithoutPlaces.length; i += 2) {
-        const row = categoriesWithoutPlaces.slice(i, i + 2).map(cat => ({
-          text: `${cat.emoji} ${this.cleanButtonText(cat.name)}`,
-          callback_data: `admin_category:select:${cat.id}`
-        }));
-        inlineKeyboard.inline_keyboard.push(row);
-      }
-    }
-    
-    // ✅ ДОБАВЛЕНО: Всегда добавляем кнопку создания новой категории
-    inlineKeyboard.inline_keyboard.push([
-      { 
-        text: '➕ Создать новую категорию', 
-        callback_data: 'admin_category:new' 
-      }
-    ]);
-    
-    // ✅ ДОБАВЛЕНО: Всегда добавляем кнопки навигации
-    inlineKeyboard.inline_keyboard.push([
-      { text: '🔙 Выбрать другой город', callback_data: 'admin_action:add_place' },
-      { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-    ]);
-    
-    // ✅ ОЧИЩАЕМ КЛАВИАТУРУ
-    this.cleanInlineKeyboard(inlineKeyboard);
-    
-    // ✅ ПРОВЕРЯЕМ ВАЛИДНОСТЬ
-    if (!this.validateReplyMarkup(inlineKeyboard)) {
-      console.warn('⚠️ Некорректная клавиатура, отправляю без нее');
-      await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
-      return;
-    }
-    
-    // ✅ ОТПРАВЛЯЕМ СООБЩЕНИЕ
-    await this.sendAdminMessage(chatId, message, {
-      parse_mode: 'Markdown',
-      reply_markup: inlineKeyboard
-    });
-  }
-
-  async handleCategoryCallback(chatId, userId, action, params, messageId) {
-    const state = this.userStates.get(chatId);
-    
-    console.log(`🔍 [DEBUG handleCategoryCallback] State:`, state);
-    
-    if (!state || state.action !== 'adding_place') {
-      // ✅ ДОБАВЛЕНО: Если состояние не найдено, показываем сообщение
-      await this.sendAdminMessage(
-        chatId,
-        '❌ Сессия устарела. Начните заново.'
-      );
-      return;
-    }
-    
-    const cityName = state.city;
-    
-    console.log(`🔍 [DEBUG handleCategoryCallback] cityName from state:`, { cityName });
-    
-    if (!cityName || cityName.trim() === '') {
-      await this.sendAdminMessage(
-        chatId,
-        '❌ Не удалось определить город. Начните заново.'
-      );
-      await this.showAdminPanel(chatId);
-      return;
-    }
-    
-    switch(action) {
-      case 'select':
-        const categoryId = params[0];
-        const category = await categoryManager.getCategoryById(categoryId);
-        
-        if (category) {
-          state.placeData.category_id = categoryId;
-          state.placeData.category_name = category.name;
-          state.placeData.category_emoji = category.emoji;
-          state.step = 'enter_name';
-          this.userStates.set(chatId, state);
-          
-          await this.sendAdminMessage(
-            chatId,
-            `✅ Вы выбрали категорию: ${category.emoji} *${category.name}*\n\n` +
-            `Теперь введите название места:`,
-            { parse_mode: 'Markdown' }
-          );
-        }
-        break;
-        
-      case 'new':
-        // ✅ ИСПОЛЬЗУЕМ ПЕРЕДАННЫЙ ГОРОД
-        await this.showCategorySelection(chatId, cityName, true);
-        break;
-    }
-  }
-
-  async handleUserState(chatId, userId, msg, state, isAdmin) {
-    const text = msg.text;
-    
-    // Проверяем, что состояние валидно
-    if (!state || !state.action) {
-      this.userStates.delete(chatId);
-      await this.sendAdminMessage(chatId, '❌ Сессия устарела. Начните заново.');
-      await this.showMainMenu(chatId, 'Главное меню:', isAdmin);
-      return;
-    }
-    
-    if (text === '/cancel' || text.toLowerCase() === 'отмена') {
-      this.userStates.delete(chatId);
-      this.userPhotos.delete(chatId);
-      await this.sendAdminMessage(chatId, '❌ Действие отменено.');
-      await this.showAdminPanel(chatId);
-      return;
-    }
-    
-    if (text === '/skip') {
-      // Для пропуска фото при добавлении города
-      if (state.action === 'adding_city' && state.step === 'add_photo') {
-        state.step = 'finish';
-        this.userStates.set(chatId, state);
-        await this.finishAddingCity(chatId, state);
-        return;
-      }
-    }
-    
-    if (state.step === 'create_category_emoji') {
-      await this.handleCreateCategoryEmoji(chatId, text, state);
-      return;
-    }
-    
-    if (state.action === 'editing_place') {
-      await this.handleEditingPlace(chatId, msg, state);
-      return;
-    }
-    
-    if (state.action === 'editing_category') {
-      await this.handleEditingCategory(chatId, msg, state);
-      return;
-    }
-    
-    // Добавьте этот case в switch
-    if (state.action === 'adding_category') {
-      await this.handleAddingCategory(chatId, msg, state);
-      return;
-    }
-
-    if (state.action === 'editing_social_field') {
-  await this.handleEditingSocialField(chatId, msg, state);
-  return;
-}
-
-if (state.action === 'editing_social_item') {
-  await this.handleEditingSocialItem(chatId, msg, state);
-  return;
-}
-
-    // ✅ ДОБАВЬТЕ ЭТИ ПРОВЕРКИ
-    if (state.action === 'adding_ad') {
-      await this.handleAddingAd(chatId, msg, state);
-      return;
-    }
-    
-    if (state.action === 'editing_ad') {
-      await this.handleEditingAd(chatId, msg, state);
-      return;
-    }
-
-    switch(state.action) {
-      case 'adding_city':
-        await this.handleAddingCity(chatId, msg, state);
-        break;
-        
-      case 'adding_place':
-        await this.handleAddingPlace(chatId, msg, state);
-        break;
-        
-      case 'search':
-        await this.handleSearch(chatId, text);
-        break;
-
-
-    }
-  if (state.action === 'editing_social_field') {
-  await this.handleEditingSocialField(chatId, msg, state);
-  return;
-}
-
-if (state.action === 'editing_social_item') {
-  await this.handleEditingSocialItem(chatId, msg, state);
-  return;
-}
-  }
-
-  async handleEditingCategory(chatId, msg, state) {
-    const text = msg.text;
-    
-    if (text === '/cancel' || text.toLowerCase() === 'отмена') {
-      this.userStates.delete(chatId);
-      await this.sendAdminMessage(chatId, '❌ Редактирование категории отменено.');
-      await this.showCategoryManagement(chatId);
-      return;
-    }
-    
-    if (state.step === 'enter_new_value') {
-      const field = state.editingField;
-      const categoryId = state.categoryId;
-      
-      let updateData = {};
-      let validationError = null;
-      
-      if (field === 'name') {
-        if (!text || text.trim().length < 2) {
-          validationError = 'Название категории должно содержать минимум 2 символа.';
-        } else {
-          updateData.name = text.trim();
-        }
-      } else if (field === 'emoji') {
-        if (!text || text.trim().length === 0) {
-          updateData.emoji = '📁';
-        } else {
-          updateData.emoji = text.trim();
-        }
-      }
-      
-      if (validationError) {
-        await this.sendAdminMessage(
-          chatId,
-          `❌ ${validationError}\n\n` +
-          `Пожалуйста, введите значение заново:`
-        );
-        return;
-      }
-      
-      const result = await categoryManager.updateCategory(categoryId, updateData);
-      
-      if (result.success) {
-        await this.sendAdminMessage(
-          chatId,
-          `✅ Категория успешно обновлена!\n\n` +
-          `Новое значение: ${field === 'name' ? updateData.name : updateData.emoji}\n\n` +
-          `Что дальше?`,
-          {
-            reply_markup: {
-              keyboard: [
-                ['✏️ Продолжить редактирование', '✅ Завершить'],
-                ['🔙 К управлению категориями', '❌ Отмена']
-              ],
-              resize_keyboard: true,
-              one_time_keyboard: true
-            }
-          }
-        );
-        
-        state.step = 'after_edit';
-        this.userStates.set(chatId, state);
-      } else {
-        await this.sendAdminMessage(
-          chatId,
-          `❌ Ошибка при обновлении категории: ${result.message}\n\n` +
-          `Попробуйте еще раз:`
-        );
-      }
-    } 
-    // Обработка после редактирования
-    else if (state.step === 'after_edit') {
-      if (text === '✏️ Продолжить редактирование') {
-        await this.handleEditCategorySelect(chatId, state.categoryId, null);
-      } else if (text === '✅ Завершить') {
-        await this.sendAdminMessage(
-          chatId,
-          `✅ Редактирование категории завершено!`,
-          { reply_markup: { remove_keyboard: true } }
-        );
-        
-        this.userStates.delete(chatId);
-        await this.showCategoryManagement(chatId);
-      } else if (text === '🔙 К управлению категориями') {
-        await this.sendAdminMessage(
-          chatId,
-          'Возвращаемся к управлению категориями...',
-          { reply_markup: { remove_keyboard: true } }
-        );
-        
-        this.userStates.delete(chatId);
-        await this.showCategoryManagement(chatId);
-      }
-    }
-  }
-
-  async handleAddingCategory(chatId, msg, state) {
-    const text = msg.text;
-    
-    console.log(`🔍 [DEBUG handleAddingCategory] State:`, { step: state.step, city: state.city, action: state.action });
-    
-    if (text === '/cancel' || text.toLowerCase() === 'отмена') {
-      this.userStates.delete(chatId);
-      await this.sendAdminMessage(chatId, '❌ Создание категории отменено.');
-      await this.showAdminPanel(chatId);
-      return;
-    }
-    
-    switch(state.step) {
-      case 'enter_name':
-        if (!text || text.trim().length < 2) {
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Название категории должно содержать минимум 2 символа.\n' +
-            'Пожалуйста, введите название заново:'
-          );
-          return;
-        }
-        
-        state.categoryName = text.trim();
-        state.step = 'enter_emoji';
-        this.userStates.set(chatId, state);
-        
-        await this.sendAdminMessage(
-          chatId,
-          `✅ Название сохранено: *${state.categoryName}*\n\n` +
-          `🎨 Теперь отправьте эмодзи для этой категории (например: 🍕, 🎨, 🏛️).\n` +
-          `Для пропуска отправьте "-":`,
-          { parse_mode: 'Markdown' }
-        );
-        break;
-        
-      case 'enter_emoji':
-        const emoji = text.trim() === '-' ? '📁' : text.trim();
-        
-        const result = await categoryManager.addCategory(state.categoryName, emoji);
-        
-        if (result.success) {
-          await this.sendAdminMessage(
-            chatId,
-            `✅ Категория "${emoji} ${state.categoryName}" успешно создана!`,
-            { parse_mode: 'Markdown' }
-          );
-          
-          console.log(`✅ [DEBUG handleAddingCategory] Category created, state.city:`, state.city);
-          
-          // Если город определен, возвращаемся к добавлению места
-          if (state.city && state.city.trim() !== '') {
-            const newState = {
-              action: 'adding_place',
-              step: 'select_category',
-              city: state.city,
-              placeData: {}
-            };
-            this.userStates.set(chatId, newState);
-            
-            await this.sendAdminMessage(
-              chatId,
-              `Теперь выберите категорию для нового места:`,
-              { parse_mode: 'Markdown' }
-            );
-            
-            // Показываем выбор категории снова
-            await this.showCategorySelection(chatId, state.city);
-          } else {
-            // Если город не определен, возвращаемся в управление категориями
-            console.log(`ℹ️ [DEBUG handleAddingCategory] No city, returning to category management`);
-            this.userStates.delete(chatId);
-            await this.showCategoryManagement(chatId);
-          }
-        } else {
-          await this.sendAdminMessage(chatId, `❌ ${result.message}`);
-          
-          // Возвращаемся к вводу названия
-          state.step = 'enter_name';
-          this.userStates.set(chatId, state);
-          await this.sendAdminMessage(
-            chatId,
-            'Пожалуйста, введите другое название категории:'
-          );
-          return;
-        }
-        break;
-    }
-  }
-
-  async handleAddingCity(chatId, msg, state) {
-    const text = msg.text;
-    
-    switch(state.step) {
-      case 'enter_name':
-        if (!text || text.trim().length === 0) {
-          await this.sendAdminMessage(chatId, '❌ Название города не может быть пустым.');
-          return;
-        }
-        
-        // Сохраняем название и переходим к добавлению фото
-        state.cityName = text.trim();
-        state.step = 'add_photo';
-        this.userStates.set(chatId, state);
-        
-        await this.sendAdminMessage(
-          chatId,
-          `✅ Название города сохранено: *${state.cityName}*\n\n` +
-          `🖼️ Теперь отправьте фото города или нажмите /skip для пропуска:`,
-          { parse_mode: 'Markdown' }
-        );
-        break;
-        
-      case 'add_photo':
-        // Если пользователь отправил фото
-        if (msg.photo) {
-          const photo = msg.photo[msg.photo.length - 1];
-          state.photoFileId = photo.file_id;
-          state.step = 'finish';
-          this.userStates.set(chatId, state);
-          
-          await this.sendAdminMessage(chatId, '✅ Фото сохранено!');
-          await this.finishAddingCity(chatId, state);
-        } else if (text === '/skip') {
-          state.step = 'finish';
-          this.userStates.set(chatId, state);
-          
-          await this.sendAdminMessage(chatId, '⏭️ Фото пропущено.');
-          await this.finishAddingCity(chatId, state);
-        } else {
-          await this.sendAdminMessage(chatId, '❌ Пожалуйста, отправьте фото или напишите /skip');
-        }
-        break;
-    }
-  }
-  
-getSocialNameFromUrl(url) {
-  if (!url || typeof url !== 'string') return 'Ссылка';
-
-  const urlLower = url.toLowerCase();
-
-  const socialDomains = {
-    'instagram.com': 'Instagram',
-    'facebook.com': 'Facebook',
-    'vk.com': 'VK',
-    'twitter.com': 'Twitter',
-    'x.com': 'X (Twitter)',
-    'tiktok.com': 'TikTok',
-    'youtube.com': 'YouTube',
-    'telegram.org': 'Telegram',
-    't.me': 'Telegram',
-    'whatsapp.com': 'WhatsApp',
-    'linkedin.com': 'LinkedIn',
-    'pinterest.com': 'Pinterest',
-    'snapchat.com': 'Snapchat',
-    'reddit.com': 'Reddit',
-    'discord.com': 'Discord',
-    'twitch.tv': 'Twitch',
-    'spotify.com': 'Spotify',
-    'apple.com/music': 'Apple Music',
-    'soundcloud.com': 'SoundCloud',
-    'github.com': 'GitHub',
-    'medium.com': 'Medium',
-    'tripadvisor.com': 'TripAdvisor',
-    'yelp.com': 'Yelp',
-    'foursquare.com': 'Foursquare',
-    'google.com/maps': 'Google Maps',
-    'yandex.ru/maps': 'Яндекс.Карты'
-  };
-
-  for (const [domain, name] of Object.entries(socialDomains)) {
-    if (urlLower.includes(domain)) {
-      return name;
-    }
-  }
-
-  // Определяем по паттерну
-  if (urlLower.includes('instagram')) return 'Instagram';
-  if (urlLower.includes('facebook')) return 'Facebook';
-  if (urlLower.includes('vk')) return 'VK';
-  if (urlLower.includes('twitter') || urlLower.includes('x.com')) return 'Twitter';
-  if (urlLower.includes('tiktok')) return 'TikTok';
-  if (urlLower.includes('youtube')) return 'YouTube';
-  if (urlLower.includes('telegram') || urlLower.includes('t.me')) return 'Telegram';
-  if (urlLower.includes('whatsapp')) return 'WhatsApp';
-  if (urlLower.includes('linkedin')) return 'LinkedIn';
-
-  return 'Ссылка';
-}
-
-async finishAddingCity(chatId, state) {
-  console.log('🏁 Начинаю завершение добавления города...');
-  
-  let photoUrl = null;
-  let photoFileName = null;
-  
-  // 📸 Загружаем фото в Firebase если оно есть
-  if (state.photoFileId && this.firebaseStorage && this.firebaseStorage.initialized) {
-    try {
-      console.log('☁️ Загружаю фото города в Firebase...');
-      
-      const firebaseResult = await this.firebaseStorage.uploadPhotoFromTelegram(
-        state.photoFileId,
-        this.botToken
-      );
-      
-      if (firebaseResult.success) {
-        photoUrl = firebaseResult.url;
-        photoFileName = firebaseResult.fileName;
-        console.log(`✅ Фото города загружено в Firebase: ${photoUrl}`);
-      } else {
-        console.log(`❌ Не удалось загрузить фото в Firebase:`, firebaseResult.error);
-      }
-    } catch (error) {
-      console.error(`❌ Ошибка при загрузке фото в Firebase:`, error);
-    }
-  } else if (state.photoFileId) {
-    console.log('⚠️ Firebase Storage не доступен, сохраняю только file_id');
-  }
-  
-  // 🔥 FIREBASE-FIRST: Сначала сохраняем в Firebase
-  let firebaseResult = null;
-  if (this.firebaseDB && this.firebaseDB.initialized) {
-    try {
-      firebaseResult = await this.firebaseDB.addCity(state.cityName, {
-        photoFileId: state.photoFileId,
-        photoUrl: photoUrl,
-        photoFileName: photoFileName,
-        createdAt: Date.now(),
-        createdBy: 'bot'
-      });
-      
-      console.log(`✅ Город "${state.cityName}" добавлен в Firebase:`, firebaseResult);
-    } catch (firebaseError) {
-      console.error('❌ Ошибка добавления города в Firebase:', firebaseError);
-    }
-  }
-  
-  // 🏙️ Также добавляем город в локальные файлы (для совместимости)
-  const localResult = await cityManager.addCity(state.cityName, {
-    photoFileId: state.photoFileId,
-    photoUrl: photoUrl,
-    photoFileName: photoFileName
-  });
-  
-  if (localResult.success) {
-    let message = `✅ Город "${localResult.cityName}" успешно добавлен!\n\n`;
-    
-    if (firebaseResult && firebaseResult.success) {
-      message += `☁️ *Данные сохранены в Firebase*\n`;
-    } else {
-      message += `📁 *Данные сохранены в локальных файлах*\n`;
-      message += `(Firebase временно недоступен)\n`;
-    }
-    
-    message += `📁 Файл: \`${localResult.fileName}\`\n`;
-    
-    if (photoUrl) {
-      message += `📸 Фото: загружено в Firebase Storage\n`;
-    } else if (state.photoFileId) {
-      message += `📸 Фото: сохранено (file_id: ${state.photoFileId})\n`;
-    } else {
-      message += `📸 Фото: не добавлено\n`;
-    }
-    
-    await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
-  } else {
-    await this.sendAdminMessage(chatId, `❌ ${localResult.message}`);
-  }
-  
-  this.userStates.delete(chatId);
-  await this.showAdminPanel(chatId);
-}
-async handleAddingPlace(chatId, msg, state) {
-  const text = msg.text;
-
-  // Фото обрабатываются отдельным обработчиком
-  if (msg.photo) {
-    return;
-  }
-
-  if (state.step === 'create_category') {
-    await this.handleCreateCategory(chatId, text, state);
-    return;
-  }
-
-  switch(state.step) {
-    case 'enter_name':
-      if (!text || text.trim().length < 2) {
-        await this.sendAdminMessage(
-          chatId,
-          '❌ Название места должно содержать минимум 2 символа.\n' +
-          'Пожалуйста, введите название заново:'
-        );
-        return;
-      }
-
-      state.placeData.name = text.trim();
-      state.step = 'enter_address';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `✅ Название сохранено: *${state.placeData.name}*\n\n` +
-        `📍 Теперь введите адрес места:`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_address':
-      if (!text || text.trim().length < 5) {
-        await this.sendAdminMessage(
-          chatId,
-          '❌ Адрес должен содержать минимум 5 символов.\n' +
-          'Пожалуйста, введите адрес заново:'
-        );
-        return;
-      }
-
-      state.placeData.address = text.trim();
-      state.step = 'enter_working_hours';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `📍 Адрес сохранен.\n\n` +
-        `⏰ Теперь введите время работы (например: "10:00 - 22:00 ежедневно"):`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_working_hours':
-      state.placeData.working_hours = text.trim();
-      state.step = 'enter_price';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `⏰ Время работы сохранено.\n\n` +
-        `💰 Теперь введите средний чек (например: "1000-2000 руб" или "бесплатно"):`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_price':
-      state.placeData.average_price = text.trim();
-      state.step = 'enter_description';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `💰 Ценовая категория сохранена.\n\n` +
-        `📝 Теперь введите описание места (можно подробное):`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_description':
-      if (!text || text.trim().length < 10) {
-        await this.sendAdminMessage(
-          chatId,
-          '❌ Описание должно содержать минимум 10 символов.\n' +
-          'Пожалуйста, введите описание заново:'
-        );
-        return;
-      }
-
-      state.placeData.description = text.trim();
-      state.step = 'enter_website';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `📝 Описание сохранено.\n\n` +
-        `🌐 Теперь введите сайт (URL). Для пропуска отправьте "-":`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_website':
-      if (text !== '-') {
-        if (text.includes('http://') || text.includes('https://')) {
-          state.placeData.website = text.trim();
-        } else {
-          state.placeData.website = `https://${text.trim()}`;
-        }
-      }
-      state.step = 'enter_phone';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `🌐 Сайт сохранен.\n\n` +
-        `📱 Теперь введите телефон. Для пропуска отправьте "-":`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_phone':
-      if (text !== '-') {
-        // Улучшенная валидация для международных номеров
-        const phoneRegex = /^[+\d\s\-\(\)\.]{5,20}$/;
-
-        if (!phoneRegex.test(text)) {
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Некорректный формат номера телефона.\n\n' +
-            '*Примеры международных форматов:*\n' +
-            '• 🇺🇸 США: +1 (555) 123-4567\n' +
-            '• 🇷🇺 Россия: +7 999 123-45-67\n' +
-            '• 🇬🇧 UK: +44 7911 123456\n' +
-            '• 🇩🇪 Германия: +49 151 12345678\n' +
-            '• 🇫🇷 Франция: +33 6 12 34 56 78\n' +
-            '• 🇪🇸 Испания: +34 612 34 56 78\n' +
-            '• 🇨🇳 Китай: +86 131 1234 5678\n' +
-            '• 🇯🇵 Япония: +81 90 1234 5678\n\n' +
-            'Пожалуйста, введите номер в международном формате:',
-            { parse_mode: 'Markdown' }
-          );
-          return;
-        }
-
-        // Проверяем, есть ли код страны
-        if (!text.includes('+') && !text.startsWith('00')) {
-          await this.sendAdminMessage(
-            chatId,
-            '⚠️ *Рекомендация:* Номер не содержит код страны.\n\n' +
-            'Для правильной работы кнопки звонка рекомендуется указывать номер в международном формате с "+".\n\n' +
-            '*Пример:* +1 234 567 8900\n\n' +
-            'Вы можете продолжить или ввести новый номер:',
-            { parse_mode: 'Markdown' }
-          );
-
-          // Сохраняем номер как есть (без принудительного добавления +)
-          state.placeData.phone = text.trim();
-        } else {
-          state.placeData.phone = text.trim();
-        }
-      }
-      state.step = 'enter_map';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `📱 Телефон сохранен.\n\n` +
-        `📍 Теперь введите ссылку на карту (Google Maps или Яндекс.Карты).\n` +
-        `Для пропуска отправьте "-":`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_map':
-      if (text === '-') {
-        // Пропускаем карту
-        state.placeData.map_url = null;
-        state.step = 'enter_social'; // ✅ ИЗМЕНЕНО: переходим к соцсетям
-        this.userStates.set(chatId, state);
-
-        await this.sendAdminMessage(
-          chatId,
-          `✅ Карта пропущена.\n\n` +
-          `📱 Теперь можно добавить социальные сети.\n\n` +
-          `*Формат:* Название:URL (каждая с новой строки)\n` +
-          `*Пример:*\n` +
-          `Instagram: https://instagram.com/place\n` +
-          `Facebook: https://facebook.com/place\n\n` +
-          `Для пропуска отправьте "-":`,
-          { parse_mode: 'Markdown' }
-        );
-        return;
-      }
-
-      // Сохраняем ссылку
-      state.placeData.map_url = text.trim();
-
-      // Пытаемся извлечь данные из ссылки
-      console.log(`🔍 Пытаюсь извлечь данные из ссылки: ${text.trim()}`);
-
-      const extractedData = await this.extractDataFromMapUrl(text.trim());
-
-      if (extractedData.success) {
-        // Сохраняем извлеченные данные
-        state.placeData.latitude = extractedData.latitude;
-        state.placeData.longitude = extractedData.longitude;
-        state.placeData.google_place_id = extractedData.google_place_id;
-
-        let successMessage = `✅ *Данные из Google Maps извлечены!*\n\n`;
-        successMessage += `📍 *Ссылка сохранена:* ${text.trim().substring(0, 50)}...\n`;
-        successMessage += `🌍 *Координаты:* ${extractedData.latitude}, ${extractedData.longitude}\n`;
-
-        if (extractedData.google_place_id) {
-          successMessage += `🏷️ *Google Place ID:* ${extractedData.google_place_id}\n`;
-        }
-
-        successMessage += `\n📱 Теперь можно добавить социальные сети.\n\n`;
-        successMessage += `*Формат:* Название:URL (каждая с новой строки)\n`;
-        successMessage += `*Пример:*\n`;
-        successMessage += `Instagram: https://instagram.com/place\n`;
-        successMessage += `Facebook: https://facebook.com/place\n\n`;
-        successMessage += `Для пропуска отправьте "-":`;
-
-        await this.sendAdminMessage(
-          chatId,
-          successMessage,
-          { parse_mode: 'Markdown' }
-        );
-
-        state.step = 'enter_social'; // ✅ ИЗМЕНЕНО: переходим к соцсетям
-        this.userStates.set(chatId, state);
-
-      } else {
-        // Не удалось извлечь данные
-        await this.sendAdminMessage(
-          chatId,
-          `❌ *Не удалось извлечь данные из ссылки*\n\n` +
-          `Ссылка сохранена, но координаты не найдены.\n\n` +
-          `Что вы хотите сделать?`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              keyboard: [
-                ['🌍 Ввести координаты вручную'],
-                ['📱 Перейти к соцсетям'],
-                ['❌ Отменить добавление']
-              ],
-              resize_keyboard: true,
-              one_time_keyboard: true
-            }
-          }
-        );
-
-        state.step = 'map_extraction_failed';
-        this.userStates.set(chatId, state);
-      }
-      break;
-
-    case 'map_extraction_failed':
-      if (text === '🌍 Ввести координаты вручную') {
-        state.step = 'enter_latitude_manual';
-        this.userStates.set(chatId, state);
-
-        await this.sendAdminMessage(
-          chatId,
-          `🌍 *Введите широту вручную*\n\n` +
-          `Пример: 41.3851\n` +
-          `Для пропуска отправьте "-":`,
-          { parse_mode: 'Markdown' }
-        );
-      } else if (text === '📱 Перейти к соцсетям') {
-        state.step = 'enter_social'; // ✅ ИЗМЕНЕНО: переходим к соцсетям
-        this.userStates.set(chatId, state);
-
-        await this.sendAdminMessage(
-          chatId,
-          `✅ Переходим к социальным сетям.\n\n` +
-          `📱 *Добавление социальных сетей*\n\n` +
-          `*Формат:* Название:URL (каждая с новой строки)\n` +
-          `*Пример:*\n` +
-          `Instagram: https://instagram.com/place\n` +
-          `Facebook: https://facebook.com/place\n\n` +
-          `Для пропуска отправьте "-":`,
-          { parse_mode: 'Markdown' }
-        );
-      }
-      break;
-
-    case 'enter_latitude_manual':
-      if (text !== '-') {
-        const lat = parseFloat(text.replace(',', '.'));
-        if (isNaN(lat) || lat < -90 || lat > 90) {
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Неверная широта. Введите число от -90 до 90 (например: 41.3851).\n\n' +
-            'Попробуйте еще раз:'
-          );
-          return;
-        }
-        state.placeData.latitude = lat;
-      }
-      state.step = 'enter_longitude_manual';
-      this.userStates.set(chatId, state);
-
-      await this.sendAdminMessage(
-        chatId,
-        `✅ Широта сохранена.\n\n` +
-        `🌍 *Введите долготу вручную*\n\n` +
-        `Пример: 2.1734\n` +
-        `Для пропуска отправьте "-":`,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    case 'enter_longitude_manual':
-      if (text !== '-') {
-        const lon = parseFloat(text.replace(',', '.'));
-        if (isNaN(lon) || lon < -180 || lon > 180) {
-          await this.sendAdminMessage(
-            chatId,
-            '❌ Неверная долгота. Введите число от -180 до 180 (например: 2.1734).\n\n' +
-            'Попробуйте еще раз:'
-          );
-          return;
-        }
-        state.placeData.longitude = lon;
-      }
-      state.step = 'enter_social'; // ✅ ИЗМЕНЕНО: переходим к соцсетям
-      this.userStates.set(chatId, state);
-
-      let manualCoordsMessage = `✅ Данные сохранены.\n\n`;
-
-      if (state.placeData.latitude && state.placeData.longitude) {
-        manualCoordsMessage += `🌍 *Координаты:* ${state.placeData.latitude}, ${state.placeData.longitude}\n\n`;
-      }
-
-      manualCoordsMessage += `📱 *Теперь можно добавить социальные сети.*\n\n`;
-      manualCoordsMessage += `*Формат:* Название:URL (каждая с новой строки)\n`;
-      manualCoordsMessage += `*Пример:*\n`;
-      manualCoordsMessage += `Instagram: https://instagram.com/place\n`;
-      manualCoordsMessage += `Facebook: https://facebook.com/place\n\n`;
-      manualCoordsMessage += `Для пропуска отправьте "-":`;
-
-      await this.sendAdminMessage(
-        chatId,
-        manualCoordsMessage,
-        { parse_mode: 'Markdown' }
-      );
-      break;
-
-    // ✅ НОВЫЙ ШАГ: Ввод социальных сетей
-
-  case 'enter_social':
-      if (text === '-') {
-        state.placeData.social_links = {};
-        state.step = 'add_photos';
-        this.userStates.set(chatId, state);
-
-        await this.sendAdminMessage(
-          chatId,
-          `✅ Соцсети пропущены.\n\n` +
-          `📷 Теперь можно добавить фото места.\n\n` +
-          `*Инструкция:*\n` +
-          `1. Отправьте фото места (можно несколько)\n` +
-          `2. После отправки всех фото нажмите "✅ Готово"\n` +
-          `3. Для пропуска нажмите "⏭️ Пропустить"\n\n` +
-          `_Вы можете отправить до 10 фото_`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              keyboard: [
-                ['✅ Готово', '⏭️ Пропустить'],
-                ['❌ Отменить добавление']
-              ],
-              resize_keyboard: true,
-              one_time_keyboard: true
-            }
-          }
-        );
-        return;
-      }
-
-      // 🔴 ПРОСТОЙ ВАРИАНТ: Просто URL
-      const normalizedUrl = this.normalizeSocialUrl(text);
-      
-      if (!this.isValidSocialUrl(normalizedUrl)) {
-        await this.sendAdminMessage(
-          chatId,
-          `❌ Неверный URL: ${text}\n\n` +
-          `Пожалуйста, введите корректный URL (например: https://instagram.com/place):`
-        );
-        return;
-      }
-
-      // Автоматически определяем название соцсети по URL
-      const socialName = this.getSocialNameFromUrl(normalizedUrl);
-      state.placeData.social_links = { [socialName]: normalizedUrl };
-      state.step = 'add_photos';
-      this.userStates.set(chatId, state);
-
-      const socialMessage = `✅ Социальная сеть добавлена!\n\n` +
-        `📱 *${socialName}:* ${normalizedUrl}\n\n` +
-        `📷 Теперь можно добавить фото места.\n\n` +
-        `*Инструкция:*\n` +
-        `1. Отправьте фото места (можно несколько)\n` +
-        `2. После отправки всех фото нажмите "✅ Готово"\n` +
-        `3. Для пропуска нажмите "⏭️ Пропустить"\n\n` +
-        `_Вы можете отправить до 10 фото_`;
-
-      await this.sendAdminMessage(
-        chatId,
-        socialMessage,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            keyboard: [
-              ['✅ Готово', '⏭️ Пропустить'],
-              ['❌ Отменить добавление']
-            ],
-            resize_keyboard: true,
-            one_time_keyboard: true
-          }
-        }
-      );
-      break;
-    // ✅ ШАГ: Добавление фото
-    case 'add_photos':
-      if (text === '✅ Готово') {
-        await this.finishAddingPlace(chatId, state);
-      } else if (text === '⏭️ Пропустить') {
-        state.placeData.photos = [];
-        await this.finishAddingPlace(chatId, state);
-      } else if (text === '❌ Отменить добавление') {
-        this.userStates.delete(chatId);
-        this.userPhotos.delete(chatId);
-        await this.sendAdminMessage(
-          chatId,
-          '❌ Добавление места отменено.',
-          { reply_markup: { remove_keyboard: true } }
-        );
-        await this.showAdminPanel(chatId);
-      }
-      break;
-  }
-}
-
-  async extractDataFromMapUrl(mapUrl) {
-    try {
-      console.log(`🔍 Анализирую ссылку: ${mapUrl.substring(0, 100)}...`);
-      
-      if (!mapUrl || typeof mapUrl !== 'string') {
-        return { 
-          success: false, 
-          message: 'Ссылка пустая или не строка' 
-        };
-      }
-
-      // Раскрываем короткие ссылки
-      let urlToAnalyze = await this.resolveShortUrl(mapUrl);
-      console.log(`✅ Раскрытая ссылка (первые 200 символов): ${urlToAnalyze.substring(0, 200)}...`);
-      
-      const result = {
-        success: false,
-        latitude: null,
-        longitude: null,
-        google_place_id: null,
-        message: '',
-        url_analyzed: urlToAnalyze
-      };
-
-      // Основной парсинг для Google Maps
-      if (urlToAnalyze.includes('google.com/maps') || urlToAnalyze.includes('maps.google.com')) {
-        console.log('🗺️ Обнаружена ссылка Google Maps');
-        
-        // Декодируем URL для упрощения парсинга
-        const decodedUrl = decodeURIComponent(urlToAnalyze);
-        console.log(`🔍 Декодированная ссылка (первые 300 символов): ${decodedUrl.substring(0, 300)}...`);
-        
-        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Ищем КОНЕЧНЫЕ координаты (последние в ссылке)
-        // В сложных ссылках Google Maps основные координаты идут ПОСЛЕДНИМИ
-        
-        // Ищем ВСЕ совпадения с координатами !3dШИРОТА!4dДОЛГОТА
-        const allCoordsMatches = [...decodedUrl.matchAll(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/g)];
-        console.log(`🔍 Найдено ${allCoordsMatches.length} наборов координат в ссылке`);
-        
-        if (allCoordsMatches.length > 0) {
-          // Берем ПОСЛЕДНИЙ набор координат - это обычно координаты основного места
-          const lastCoordsMatch = allCoordsMatches[allCoordsMatches.length - 1];
-          result.latitude = parseFloat(lastCoordsMatch[1]);
-          result.longitude = parseFloat(lastCoordsMatch[2]);
-          console.log(`✅ Взяты ПОСЛЕДНИЕ координаты из ссылки: ${result.latitude}, ${result.longitude}`);
-          result.success = true;
-          
-          // Ищем соответствующий Place ID - ищем !1s, который идет ПЕРЕД этими координатами
-          // Находим индекс текущих координат
-          const coordsStartIndex = lastCoordsMatch.index;
-          
-          // Ищем !1s, который находится ДО этих координат
-          const beforeCoords = decodedUrl.substring(0, coordsStartIndex);
-          const placeIdMatches = [...beforeCoords.matchAll(/!1s([^!]+)/g)];
-          
-          if (placeIdMatches.length > 0) {
-            // Берем ПОСЛЕДНИЙ !1s перед координатами
-            const lastPlaceIdMatch = placeIdMatches[placeIdMatches.length - 1];
-            result.google_place_id = lastPlaceIdMatch[1];
-            
-            // Очищаем Place ID
-            result.google_place_id = result.google_place_id.split('?')[0].split('/')[0];
-            console.log(`✅ Place ID найден: ${result.google_place_id}`);
-          } else {
-            console.log('⚠️ Place ID не найден перед координатами');
-          }
-        }
-        
-        // Если не нашли через !3d!4d, пробуем другие форматы
-        if (!result.success) {
-          // Формат: /@широта,долгота
-          const atMatch = decodedUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-          if (atMatch) {
-            result.latitude = parseFloat(atMatch[1]);
-            result.longitude = parseFloat(atMatch[2]);
-            console.log(`✅ Координаты из @: ${result.latitude}, ${result.longitude}`);
-            result.success = true;
-          }
-        }
-        
-        // Если все еще нет Place ID, ищем другими способами
-        if (!result.google_place_id) {
-          // Ищем в параметре place_id=
-          const placeIdParamMatch = decodedUrl.match(/place_id=([^&]+)/);
-          if (placeIdParamMatch) {
-            result.google_place_id = placeIdParamMatch[1];
-            console.log(`✅ Place ID из place_id=: ${result.google_place_id}`);
-          }
-        }
-        
-        // Очищаем и проверяем Place ID
-        if (result.google_place_id) {
-          result.google_place_id = result.google_place_id.split('?')[0].split('/')[0];
-          
-          const isValidPlaceId = result.google_place_id.length >= 10 && 
-            (result.google_place_id.includes(':') || 
-             result.google_place_id.startsWith('ChIJ') ||
-             result.google_place_id.startsWith('0x'));
-          
-          if (!isValidPlaceId) {
-            console.log(`⚠️ Полученный Place ID невалидный: ${result.google_place_id}`);
-            result.google_place_id = null;
-          }
-        }
-      }
-      // Яндекс.Карты и другие сервисы (оставляем без изменений)
-      else if (urlToAnalyze.includes('yandex.ru/maps') || urlToAnalyze.includes('yandex.com/maps')) {
-        console.log('🗺️ Обнаружена ссылка Яндекс.Карты');
-        
-        const decodedUrl = decodeURIComponent(urlToAnalyze);
-        const llMatch = decodedUrl.match(/ll=([^&]+)/);
-        if (llMatch) {
-          const coords = llMatch[1].split(',');
-          if (coords.length >= 2) {
-            result.longitude = parseFloat(coords[0]);
-            result.latitude = parseFloat(coords[1]);
-            console.log(`✅ Координаты из ll: ${result.latitude}, ${result.longitude}`);
-            result.success = true;
-          }
-        }
-      }
-      
-      // Валидация результатов
-      if (result.latitude && result.longitude) {
-        if (result.latitude < -90 || result.latitude > 90 || 
-            result.longitude < -180 || result.longitude > 180) {
-          result.message = 'Координаты вне допустимого диапазона';
-          result.success = false;
-          result.latitude = null;
-          result.longitude = null;
-        } else {
-          result.message = 'Данные успешно извлечены';
-          console.log(`🎯 Успешно извлечены: lat=${result.latitude}, lon=${result.longitude}, place_id=${result.google_place_id || 'НЕТ'}`);
-        }
-      } else {
-        result.message = 'Не удалось извлечь координаты из ссылки';
-        console.log('❌ Не удалось извлечь координаты');
-      }
-      
-      return result;
-      
-    } catch (error) {
-      console.error('❌ Критическая ошибка в extractDataFromMapUrl:', error);
-      return { 
-        success: false, 
-        message: `Ошибка обработки: ${error.message}`,
-        latitude: null,
-        longitude: null,
-        google_place_id: null
-      };
-    }
-  }
-
-  async testMapUrlParsing(mapUrl) {
-    console.log('\n🔬 ТЕСТИРОВАНИЕ ПАРСИНГА ССЫЛКИ');
-    console.log(`URL: ${mapUrl.substring(0, 100)}...`);
-    
-    const decodedUrl = decodeURIComponent(mapUrl);
-    
-    // 1. Ищем все !3d!4d
-    const coordsMatches = [...decodedUrl.matchAll(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/g)];
-    console.log(`\n📍 Найдено наборов координат: ${coordsMatches.length}`);
-    coordsMatches.forEach((match, index) => {
-      console.log(`  ${index + 1}. lat=${match[1]}, lon=${match[2]}`);
-    });
-    
-    // 2. Ищем все !1s (Place IDs)
-    const placeIdMatches = [...decodedUrl.matchAll(/!1s([^!]+)/g)];
-    console.log(`\n🏷️ Найдено Place ID: ${placeIdMatches.length}`);
-    placeIdMatches.forEach((match, index) => {
-      console.log(`  ${index + 1}. ${match[1].substring(0, 50)}...`);
-    });
-    
-    // 3. Ищем названия мест !2s
-    const nameMatches = [...decodedUrl.matchAll(/!2s([^!]+)/g)];
-    console.log(`\n🏢 Найдено названий: ${nameMatches.length}`);
-    nameMatches.forEach((match, index) => {
-      const name = decodeURIComponent(match[1].replace(/\+/g, ' '));
-      console.log(`  ${index + 1}. ${name}`);
-    });
-    
-    // Запускаем основную функцию
-    console.log('\n🧪 Запускаем extractDataFromMapUrl:');
-    return await this.extractDataFromMapUrl(mapUrl);
-  }
-
-  // Вспомогательная функция для раскрытия коротких ссылок (улучшенная)
-  async resolveShortUrl(shortUrl) {
-    try {
-      console.log(`🔗 Раскрываю короткую ссылку: ${shortUrl.substring(0, 50)}...`);
-      
-      // Пропускаем, если это уже полная ссылка
-      if (!shortUrl.includes('goo.gl') && !shortUrl.includes('maps.app.goo.gl')) {
-        return shortUrl;
-      }
-      
-      // Используем axios для получения конечного URL
-      const axios = require('axios');
-      
-      // Делаем GET запрос с максимальным количеством редиректов
-      const response = await axios.get(shortUrl, {
-        maxRedirects: 10,
-        timeout: 10000,
-        // Следуем за редиректами
-        validateStatus: function (status) {
-          return status < 400; // Принимаем успешные и редиректы
-        }
-      });
-      
-      // response.request.res.responseUrl содержит конечный URL
-      const finalUrl = response.request.res.responseUrl || response.config.url;
-      
-      console.log(`✅ Раскрытая ссылка (${finalUrl.length} символов): ${finalUrl.substring(0, 100)}...`);
-      return finalUrl;
-      
-    } catch (error) {
-      console.error('❌ Ошибка раскрытия короткой ссылки:', error.message);
-      
-      // Пробуем через HEAD запрос
-      try {
-        const axios = require('axios');
-        const response = await axios.head(shortUrl, {
-          maxRedirects: 5,
-          timeout: 5000
-        });
-        
-        if (response.request && response.request.res && response.request.res.responseUrl) {
-          return response.request.res.responseUrl;
-        }
-      } catch (secondError) {
-        console.error('❌ Вторая попытка тоже не удалась:', secondError.message);
-      }
-      
-      return shortUrl; // Возвращаем исходную, если не удалось раскрыть
-    }
-  }
-
-  async handleCreateCategory(chatId, categoryName, state) {
-    if (!categoryName || categoryName.trim().length < 2) {
-      await this.sendAdminMessage(
-        chatId,
-        '❌ Название категории должно содержать минимум 2 символа.\n' +
-        'Пожалуйста, введите название заново:'
-      );
-      return;
-    }
-    
-    await this.sendAdminMessage(
-      chatId,
-      `📝 Название категории: *${categoryName.trim()}*\n\n` +
-      `🎨 Теперь отправьте эмодзи для этой категории (например: 🍕, 🎨, 🏛️).\n` +
-      `Для пропуска отправьте "-":`,
-      { parse_mode: 'Markdown' }
-    );
-    
-    state.tempCategoryName = categoryName.trim();
-    state.step = 'create_category_emoji';
-    this.userStates.set(chatId, state);
-  }
-
-  async handleCreateCategoryEmoji(chatId, emoji, state) {
-    const categoryName = state.tempCategoryName;
-    const categoryEmoji = emoji === '-' ? '📁' : emoji.trim();
-    
-    const result = await categoryManager.addCategory(categoryName, categoryEmoji);
-    
-    if (result.success) {
-      state.placeData.category_id = result.category.id;
-      state.placeData.category_name = result.category.name;
-      state.placeData.category_emoji = result.category.emoji;
-      state.step = 'enter_name';
-      
-      delete state.tempCategoryName;
-      this.userStates.set(chatId, state);
-      
-      await this.sendAdminMessage(
-        chatId,
-        `✅ ${result.message}\n\n` +
-        `Теперь введите название места:`,
-        { parse_mode: 'Markdown' }
-      );
-    } else {
-      await this.sendAdminMessage(chatId, `❌ ${result.message}`);
-      
-      state.step = 'select_category';
-      this.userStates.set(chatId, state);
-      
-      console.log(`❌ [DEBUG handleCreateCategoryEmoji] Error creating category, state.city:`, state.city);
-      
-      if (state.city && state.city.trim() !== '') {
-        await this.showCategorySelection(chatId, state.city);
-      } else {
-        console.error(`❌ [DEBUG handleCreateCategoryEmoji] state.city is invalid:`, state.city);
-        await this.sendAdminMessage(chatId, '❌ Ошибка: город не определен. Начните заново.');
-        await this.showAdminPanel(chatId);
-      }
-    }
-  }
-
-async finishAddingPlace(chatId, state) {
-  console.log('🏁 Начинаю завершение добавления места...');
-  
-// 🔥 FIREBASE-FIRST: Сначала сохраняем в Firebase
-  if (this.firebaseDB && this.firebaseDB.initialized) {
-    try {
-      const firebasePlace = {
-        ...state.placeData,
-        city: state.city,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        createdBy: 'bot'
-      };
-      
-      // Добавляем фото, если они есть
-      if (this.userPhotos.has(chatId)) {
-        const photos = this.userPhotos.get(chatId);
-        if (photos.length > 0) {
-          // Загружаем фото в Firebase Storage
-          const uploadedPhotos = await this.uploadPhotosToFirebase(photos);
-          firebasePlace.photos = uploadedPhotos;
-        }
-      }
-      
-      const firebaseResult = await this.firebaseDB.addPlace(firebasePlace);
-      console.log('✅ Место сохранено в Firebase:', firebaseResult);
-      
-    } catch (firebaseError) {
-      console.error('❌ Ошибка сохранения места в Firebase:', firebaseError);
-    }
-  }
-
-  // 🔍 ДЕБАГ: Проверяем данные перед сохранением
-  console.log('🔍 [DEBUG finishAddingPlace] Данные места перед сохранением:', {
-    socialLinks: state.placeData.social_links,
-    socialLinksType: typeof state.placeData.social_links,
-    hasSocialLinks: !!state.placeData.social_links,
-    socialLinksKeys: state.placeData.social_links ? Object.keys(state.placeData.social_links) : []
-  });
-  
-  const photoFileIds = this.userPhotos.get(chatId) || [];
-  console.log(`📸 File IDs для загрузки в Firebase: ${photoFileIds.length} шт.`);
-  
-  let uploadedPhotos = [];
-  
-  if (photoFileIds.length > 0 && this.firebaseStorage && this.firebaseStorage.initialized) {
-    console.log('☁️ Начинаю загрузку фото в Firebase...');
-    
-    for (let i = 0; i < photoFileIds.length; i++) {
-      const fileId = photoFileIds[i];
-      try {
-        console.log(`📥 Загружаю фото ${i + 1}/${photoFileIds.length} в Firebase...`);
-        
-        const firebaseResult = await this.firebaseStorage.uploadPhotoFromTelegram(
-          fileId, 
-          this.botToken
-        );
-        
-        if (firebaseResult.success) {
-          uploadedPhotos.push({
-            url: firebaseResult.url,
-            fileName: firebaseResult.fileName,
-            uploadedAt: firebaseResult.uploadedAt,
-            telegramFileId: fileId
-          });
-          console.log(`✅ Фото ${i + 1} загружено в Firebase: ${firebaseResult.url}`);
-        } else {
-          console.log(`❌ Не удалось загрузить фото ${i + 1} в Firebase:`, firebaseResult.error);
-        }
-      } catch (error) {
-        console.error(`❌ Ошибка при обработке фото ${i + 1}:`, error);
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  } else if (photoFileIds.length > 0) {
-    console.log('⚠️ Firebase Storage не доступен, сохраняю только file_id');
-    
-    photoFileIds.forEach(fileId => {
-      uploadedPhotos.push({
-        telegramFileId: fileId,
-        error: 'Firebase недоступен'
-      });
-    });
-  }
-  
-  this.userPhotos.delete(chatId);
-  
-  // 🔍 ДОБАВЛЕНА ДИАГНОСТИКА КООРДИНАТ
-  console.log('🌍 [DEBUG] Проверяю координаты перед сохранением:');
-  console.log('  - map_url:', state.placeData.map_url || 'НЕТ');
-  console.log('  - latitude:', state.placeData.latitude || 'НЕТ');
-  console.log('  - longitude:', state.placeData.longitude || 'НЕТ');
-  console.log('  - google_place_id:', state.placeData.google_place_id || 'НЕТ');
-  
-  // 🔧 Если есть map_url, но нет координат - извлекаем их
-  if (state.placeData.map_url && (!state.placeData.latitude || !state.placeData.longitude)) {
-    console.log('⚠️ Обнаружена ссылка на карту без координат. Пытаюсь извлечь...');
-    
-    const extractedData = await this.extractDataFromMapUrl(state.placeData.map_url);
-    
-    if (extractedData.success) {
-      state.placeData.latitude = extractedData.latitude;
-      state.placeData.longitude = extractedData.longitude;
-      
-      if (extractedData.google_place_id) {
-        state.placeData.google_place_id = extractedData.google_place_id;
-      }
-      
-      console.log('✅ Координаты успешно извлечены при сохранении:');
-      console.log('  - latitude:', extractedData.latitude);
-      console.log('  - longitude:', extractedData.longitude);
-      console.log('  - google_place_id:', extractedData.google_place_id || 'НЕТ');
-    } else {
-      console.log('❌ Не удалось извлечь координаты:', extractedData.message);
-    }
-  }
-  
-  // 🔍 ПРОВЕРКА ФОТО ПЕРЕД СОХРАНЕНИЕМ
-  const photosToSave = uploadedPhotos.filter(photo => photo.url);
-  console.log('📸 [DEBUG] Фото для сохранения:', photosToSave.length);
-  
-  // 🔍 УБЕДИТЕСЬ, ЧТО СОЦСЕТИ СОХРАНЯЮТСЯ КАК ОБЪЕКТ
-  const socialLinks = state.placeData.social_links || {};
-  console.log('🔍 [DEBUG] Соцсети для сохранения:', {
-    hasSocialLinks: !!state.placeData.social_links,
-    socialLinksType: typeof socialLinks,
-    socialLinksCount: Object.keys(socialLinks).length,
-    socialLinksData: socialLinks
-  });
-  
-  const placeData = {
-    name: state.placeData.name,
-    address: state.placeData.address,
-    working_hours: state.placeData.working_hours,
-    average_price: state.placeData.average_price,
-    description: state.placeData.description,
-    category_id: state.placeData.category_id,
-    category_name: state.placeData.category_name,
-    category_emoji: state.placeData.category_emoji,
-    website: state.placeData.website,
-    phone: state.placeData.phone,
-    contacts: state.placeData.contacts,
-    map_url: state.placeData.map_url,
-    latitude: state.placeData.latitude,
-    longitude: state.placeData.longitude,
-    google_place_id: state.placeData.google_place_id,
-    social_links: socialLinks, // Убедитесь, что это объект
-    photos: photosToSave.map(photo => ({
-      url: photo.url,
-      fileName: photo.fileName,
-      uploadedAt: photo.uploadedAt || new Date().toISOString(),
-      telegramFileId: photo.telegramFileId
-    }))
-  };
-  
-  console.log('💾 [DEBUG] Итоговые данные для сохранения:', {
-    name: placeData.name,
-    social_links: placeData.social_links,
-    social_links_type: typeof placeData.social_links,
-    social_links_keys: Object.keys(placeData.social_links || {})
-  });
-  
-  try {
-    console.log('💾 [DEBUG] Вызываю placeManager.addPlace...');
-    const result = await placeManager.addPlace(state.city, placeData);
-    console.log('💾 [DEBUG] Результат addPlace:', result.success ? 'УСПЕХ' : 'ОШИБКА');
-    console.log('💾 [DEBUG] Сохраненное место:', result.place ? 'Есть' : 'Нет');
-    
-    if (result.success) {
-      const place = result.place;
-      
-      // 🛡️ ОЧИЩАЕМ СОСТОЯНИЕ СРАЗУ ДЛЯ ПРЕДОТВРАЩЕНИЯ ДУБЛИРОВАНИЯ
-      this.userStates.delete(chatId);
-      this.userPhotos.delete(chatId);
-      
-      let message = `✅ *Место успешно добавлено!*\n\n`;
-      message += `🏙️ *Город:* ${state.city}\n`;
-      message += `📁 *Категория:* ${place.category_emoji} ${place.category_name}\n`;
-      message += `🏛️ *Название:* ${place.name}\n`;
-      message += `📍 *Адрес:* ${place.address}\n`;
-      message += `⏰ *Время работы:* ${place.working_hours}\n`;
-      message += `💰 *Средний чек:* ${place.average_price}\n`;
-      
-      // 🔍 Показываем информацию о соцсетях
-      if (place.social_links && Object.keys(place.social_links).length > 0) {
-        message += `📱 *Социальные сети:* ${Object.keys(place.social_links).length} шт. добавлено\n`;
-        Object.entries(place.social_links).forEach(([name, url]) => {
-          message += `  • ${this.getSocialIcon(url)} ${name}\n`;
-        });
-      }
-      
-      // 🚗 Показываем статус координат
-      if (place.latitude && place.longitude) {
-        message += `🌍 *Координаты:* ✅ Сохранены (${place.latitude}, ${place.longitude})\n`;
-      } else {
-        message += `🌍 *Координаты:* ❌ Не найдены\n`;
-      }
-      
-      if (place.photos && place.photos.length > 0) {
-        message += `📷 *Фото:* ${place.photos.length} шт. (сохранены в Firebase)\n`;
-      } else {
-        message += `📷 *Фото:* не добавлены\n`;
-      }
-      
-      message += `\n📅 *Добавлено:* ${new Date().toLocaleDateString('ru-RU')}`;
-      
-      await this.sendAdminMessage(chatId, message, { 
-        parse_mode: 'Markdown',
-        reply_markup: { remove_keyboard: true } 
-      });
-      
-      await this.askNextActionAfterAdd(chatId);
-      
-    } else {
-      throw new Error(result.message);
-    }
-  } catch (error) {
-    console.error('❌ Ошибка при сохранении места:', error);
-    
-    // Очищаем состояние при ошибке
-    this.userStates.delete(chatId);
-    this.userPhotos.delete(chatId);
-    
-    await this.sendAdminMessage(
-      chatId,
-      `❌ Ошибка при добавлении места: ${error.message}`,
-      { reply_markup: { remove_keyboard: true } }
-    );
-    await this.showAdminPanel(chatId);
-  }
-}
-
-async uploadPhotosToFirebase(photoFileIds) {
-  const uploadedPhotos = [];
-  
-  if (!this.firebaseStorage || !this.firebaseStorage.initialized) {
-    console.log('⚠️ Firebase Storage недоступен для загрузки фото');
-    return [];
-  }
-  
-  for (const fileId of photoFileIds) {
-    try {
-      const result = await this.firebaseStorage.uploadPhotoFromTelegram(fileId, this.botToken);
-      if (result.success) {
-        uploadedPhotos.push({
-          url: result.url,
-          fileName: result.fileName,
-          uploadedAt: Date.now()
-        });
-        console.log(`✅ Фото загружено в Firebase: ${result.url}`);
-      }
-    } catch (error) {
-      console.error(`❌ Ошибка загрузки фото ${fileId}:`, error);
-    }
-  }
-  
-  return uploadedPhotos;
-}
-
-  generateTaxiLinks(place) {
-    const links = {};
-    const encodedName = encodeURIComponent(place.name);
-    
-    // Uber
-    if (place.latitude && place.longitude) {
-      const uberDropoff = {
-        addressLine1: place.name,
-        addressLine2: place.address || "",
-        id: place.google_place_id || "",
-        source: "SEARCH",
-        latitude: place.latitude,
-        longitude: place.longitude,
-        provider: "google_places"
-      };
-      
-      const uberDropoffEncoded = encodeURIComponent(JSON.stringify(uberDropoff));
-      links.uber = `https://m.uber.com/go/pickup?drop%5B0%5D=${uberDropoffEncoded}`;
-    }
-    
-    // Google Maps - построение маршрута
-    if (place.latitude && place.longitude) {
-      links.googleMaps = `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}&travelmode=driving`;
-    }
-    
-    return links;
-  }
-
-  async askNextActionAfterAdd(chatId) {
-    const inlineKeyboard = {
-      inline_keyboard: [
-        [
-          { text: '➕ Добавить еще место', callback_data: 'admin_action:add_place' },
-          { text: '📋 Посмотреть все места', callback_data: 'admin_action:view_places' }
-        ],
-        [
-          { text: '🏠 В админ-панель', callback_data: 'admin_action:back_to_panel' },
-          { text: '❌ Закончить', callback_data: 'admin_action:finish' }
-        ]
-      ]
-    };
-    
-    await this.sendAdminMessage(
-      chatId,
-      '📋 *Что вы хотите сделать дальше?*',
-      {
-        parse_mode: 'Markdown',
-        reply_markup: inlineKeyboard
-      }
-    );
-  }
-
-  async showAllPlaces(chatId) {
-    const cities = await cityManager.getAllCities();
-    
-    if (cities.length === 0) {
-      await this.sendAdminMessage(chatId, '📭 Нет городов с местами.');
-      return;
-    }
-    
-    let message = '📋 *Все места по городам:*\n\n';
-    
-    for (const city of cities) {
-      const places = await placeManager.getPlacesByCity(city);
-      
-      if (places.length > 0) {
-        message += `🏙️ *${city}* (${places.length} мест):\n`;
-        
-        places.slice(0, 5).forEach(place => {
-          const category = place.category_emoji ? `${place.category_emoji} ` : '';
-          message += `• ${category}${place.name}\n`;
-        });
-        
-        if (places.length > 5) {
-          message += `... и еще ${places.length - 5} мест\n`;
-        }
-        
-        message += `\n`;
-      }
-    }
-    
-    await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown' });
-  }
-
-  async startEditPlace(chatId) {
-    const cities = await cityManager.getAllCities();
-    
-    if (cities.length === 0) {
-      await this.sendAdminMessage(chatId, '📭 Нет городов для редактирования.');
-      return;
-    }
-    
-    console.log('🏙️ Города для редактирования:', cities);
-    
-    const inlineKeyboard = {
-      inline_keyboard: []
-    };
-    
-    // Создаем кнопки с отладочной информацией
-    for (let i = 0; i < cities.length; i += 2) {
-      const row = cities.slice(i, i + 2).map(city => {
-        const cityKey = this.getCityKey(city);
-        console.log(`🔑 Создаю callback_data для города "${city}": admin_city:select_for_edit:${cityKey}`);
-        
-        return {
-          text: `🏙️ ${city}`,
-          callback_data: `admin_city:select_for_edit:${cityKey}`
-        };
-      });
-      inlineKeyboard.inline_keyboard.push(row);
-    }
-    
-    inlineKeyboard.inline_keyboard.push([
-      { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
-    ]);
-    
-    await this.sendAdminMessage(
-      chatId,
-      '✏️ *Редактирование места*\n\n' +
-      'Выберите город, в котором хотите отредактировать место:',
-      {
-        parse_mode: 'Markdown',
-        reply_markup: inlineKeyboard
-      }
-    );
-  }
-
-  async showPlacesForEdit(chatId, cityName) {
-    const places = await placeManager.getPlacesByCity(cityName);
+async showPlacesByCategory(chatId, cityKey, categoryId, page = 0) {
+    const cityName = await this.getCityNameFromKey(cityKey);
+    const userId = this.userStates.get(chatId)?.userId || chatId;
+    const isAdmin = this.isUserAdmin(userId);
+    
+    const places = await placeManager.getPlacesByCategory(cityName, categoryId);
+    const category = await categoryManager.getCategoryById(categoryId);
     
     if (places.length === 0) {
-      await this.sendAdminMessage(
-        chatId,
-        `📭 В городе "${cityName}" нет мест для редактирования.`
-      );
+      await this.sendAndTrack(chatId, `В категории "${category.emoji} ${category.name}" пока нет мест.\n\nВыберите другую категорию.`);
       return;
     }
     
-    let message = `✏️ *Редактирование места в ${cityName}*\n\n`;
-    message += `Выберите место для редактирования:`;
+    const pageSize = 15;
+    const totalPages = Math.ceil(places.length / pageSize);
+    const start = page * pageSize;
+    const end = Math.min(start + pageSize, places.length);
     
-    const inlineKeyboard = {
-      inline_keyboard: []
-    };
+    const sortedPlaces = [...places].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const pagePlaces = sortedPlaces.slice(start, end);
     
-    places.forEach((place, index) => {
-      const cleanName = this.cleanButtonText(place.name);
-      const displayName = cleanName || `Место ${index + 1}`;
-      
-      const category = place.category_emoji ? `${place.category_emoji} ` : '';
-      
-      inlineKeyboard.inline_keyboard.push([
-        {
-          text: `${category}${displayName}`,
-          callback_data: `edit_place_select:${this.getCityKey(cityName)}:${place.id}`  // ИСПРАВЛЕНО
-        }
-      ]);
+    let message = `📍 *${category.emoji} ${category.name} в ${cityName}* (Стр. ${page + 1}/${totalPages})\n\n`;
+    message += `Выберите место:`;
+    
+    const inlineKeyboard = { inline_keyboard: [] };
+    
+    pagePlaces.forEach(place => {
+      const socialIcon = place.social_links && Object.keys(place.social_links).length > 0 ? ' 📱' : '';
+      inlineKeyboard.inline_keyboard.push([{
+        text: `${place.name}${socialIcon}${place.average_price ? ` (${place.average_price})` : ''}`,
+        callback_data: `show_place:${cityKey}:${place.id}`
+      }]);
     });
+
+    const navRow = [];
+    if (page > 0) navRow.push({ text: '⬅️ Пред.', callback_data: `user_category_page:${cityKey}:${categoryId}:${page - 1}` });
+    if (page < totalPages - 1) navRow.push({ text: 'След. ➡️', callback_data: `user_category_page:${cityKey}:${categoryId}:${page + 1}` });
+    if (navRow.length > 0) inlineKeyboard.inline_keyboard.push(navRow);
     
     inlineKeyboard.inline_keyboard.push([
-      { text: '🔙 Выбрать другой город', callback_data: 'admin_action:edit_place' },
-      { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
-      { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
+      { text: '🔙 К категориям', callback_data: `select_city:${cityKey}` },
+      { text: '🏠 Меню', callback_data: 'back:main_menu' }
     ]);
     
-    try {
-      await this.sendAdminMessage(chatId, message, {
-        parse_mode: 'Markdown',
-        reply_markup: inlineKeyboard
-      });
-    } catch (error) {
-      console.error('❌ Ошибка при отправке сообщения:', error.message);
-      
-      // Альтернативный вариант с простыми кнопками
-      await this.showPlacesForEditSimple(chatId, cityName, places);
+    this.cleanInlineKeyboard(inlineKeyboard);
+    await this.sendAndTrack(chatId, message, { parse_mode: 'Markdown', reply_markup: inlineKeyboard });
+  }
+
+  async showPlacesForEdit(chatId, cityName, page = 0) {
+    const places = await placeManager.getPlacesByCity(cityName);
+    const cityKey = this.getCityKey(cityName);
+    
+    if (places.length === 0) {
+      await this.sendAdminMessage(chatId, `📭 В городе "${cityName}" нет мест для редактирования.`);
+      return;
     }
+
+    const pageSize = 15;
+    const totalPages = Math.ceil(places.length / pageSize);
+    const start = page * pageSize;
+    const end = Math.min(start + pageSize, places.length);
+    const pagePlaces = places.slice(start, end);
+    
+    let message = `✏️ *Редактирование места в ${cityName}* (Стр. ${page + 1}/${totalPages})\n\n`;
+    message += `Выберите место для редактирования:`;
+    
+    const inlineKeyboard = { inline_keyboard: [] };
+    
+    pagePlaces.forEach((place, index) => {
+      const cleanName = this.cleanButtonText(place.name);
+      const displayName = cleanName || `Место ${start + index + 1}`;
+      const category = place.category_emoji ? `${place.category_emoji} ` : '';
+      
+      inlineKeyboard.inline_keyboard.push([{
+        text: `${category}${displayName}`,
+        callback_data: `edit_place_select:${cityKey}:${place.id}`
+      }]);
+    });
+
+    const navRow = [];
+    if (page > 0) navRow.push({ text: '⬅️ Пред.', callback_data: `admin_city_page:${cityKey}:${page - 1}` });
+    if (page < totalPages - 1) navRow.push({ text: 'След. ➡️', callback_data: `admin_city_page:${cityKey}:${page + 1}` });
+    if (navRow.length > 0) inlineKeyboard.inline_keyboard.push(navRow);
+    
+    inlineKeyboard.inline_keyboard.push([
+      { text: '🔙 К городам', callback_data: 'admin_action:edit_place' },
+      { text: '❌ Отмена', callback_data: 'admin_action:cancel' }
+    ]);
+    
+    this.cleanInlineKeyboard(inlineKeyboard);
+    await this.sendAdminMessage(chatId, message, { parse_mode: 'Markdown', reply_markup: inlineKeyboard });
   }
 
   async showPlacesForEditSimple(chatId, cityName, places) {
@@ -7322,85 +5059,44 @@ async uploadPhotosToFirebase(photoFileIds) {
     message += `📁 ${category.emoji} ${category.name}\n\n`;
     message += `Выберите поле для редактирования:`;
     
-    // Укорачиваем ID места - берем только первые 8 символов
-    const shortPlaceId = placeId.substring(0, 8);
-    
-    // Проверяем длину callback_data для каждого поля
-    const checkLength = (field) => {
-      const data = `e_f:${cityKey}:${shortPlaceId}:${field}`;
-      console.log(`🔍 Длина callback_data для ${field}: ${data.length}`);
-      return data;
-    };
+    // Укорачиваем ID места - берем только первые 8 символов для callback_data
+    const sId = placeId.substring(0, 8);
+    // Укорачиваем cityKey если он слишком длинный
+    const cK = cityKey.length > 15 ? cityKey.substring(0, 15) : cityKey;
     
     const inlineKeyboard = {
       inline_keyboard: [
         [
-          { 
-            text: '🏛️ Название', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:n`  // Сокращенные имена полей
-          },
-          { 
-            text: '📍 Адрес', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:a`
-          }
+          { text: '🏛️ Название', callback_data: `e_f:${cK}:${sId}:n` },
+          { text: '📍 Адрес', callback_data: `e_f:${cK}:${sId}:a` }
         ],
         [
-          { 
-            text: '⏰ Время работы', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:t`
-          },
-          { 
-            text: '💰 Средний чек', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:p`
-          }
+          { text: '⏰ Время работы', callback_data: `e_f:${cK}:${sId}:t` },
+          { text: '💰 Средний чек', callback_data: `e_f:${cK}:${sId}:p` }
         ],
         [
-          { 
-            text: '📝 Описание', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:d`
-          },
-          { 
-            text: '🌐 Сайт', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:w`
-          }
+          { text: '📝 Описание', callback_data: `e_f:${cK}:${sId}:d` },
+          { text: '🌐 Сайт', callback_data: `e_f:${cK}:${sId}:w` }
         ],
         [
-          { 
-            text: '📱 Телефон', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:ph`
-          },
-          { 
-            text: '📍 Карта', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:m`
-          }
+          { text: '📱 Телефон', callback_data: `e_f:${cK}:${sId}:ph` },
+          { text: '📍 Карта', callback_data: `e_f:${cK}:${sId}:m` }
         ],
         [
-          { 
-            text: '📁 Категория', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:c`
-          }
+          { text: '📁 Категория', callback_data: `e_f:${cK}:${sId}:c` }
         ],
         [
-          { 
-            text: '🌍 Широта', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:lat`
-          },
-          { 
-            text: '🌍 Долгота', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:lon`
-          }
+          { text: '🌍 Широта', callback_data: `e_f:${cK}:${sId}:lat` },
+          { text: '🌍 Долгота', callback_data: `e_f:${cK}:${sId}:lon` }
         ],
         [
-          { 
-            text: '🏷️ Google Place ID', 
-            callback_data: `e_f:${cityKey}:${shortPlaceId}:gpid`
-          }
+          { text: '🏷️ GPID', callback_data: `e_f:${cK}:${sId}:gpid` }
         ],
         [
-          { text: '🗑️ Удалить место', callback_data: `e_f:${cityKey}:${placeId}:del` }
+          { text: '🗑️ Удалить место', callback_data: `e_f:${cK}:${sId}:del` }
         ],
         [
-          { text: '🔙 К выбору места', callback_data: `admin_city:select_for_edit:${cityKey}` },
+          { text: '🔙 К выбору места', callback_data: `admin_city:select_for_edit:${cK}` },
           { text: '❌ Отмена', callback_data: 'admin_action:cancel' },
           { text: '🏠 Главное меню', callback_data: 'back:main_menu' }
         ]
@@ -7552,7 +5248,7 @@ categories.forEach((cat, index) => {
     inlineKeyboardForCategory.inline_keyboard.push([
       { 
         text: '🔙 Назад', 
-        callback_data: this.cleanCallbackData(`edit_place_select:${cityKey}:${placeId}`)
+        callback_data: this.cleanCallbackData(`edit_place_select:${cityKey.substring(0, 15)}:${placeId.substring(0, 8)}`)
       }
     ]);
     
